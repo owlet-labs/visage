@@ -90,13 +90,8 @@ namespace visage {
     // is the quantity a transient arena has to be sized against.
     resetBatchQuadCount();
 
-    // BEFORE ANYTHING IS SUBMITTED, and in this order.
-    //
-    // First perform any repack a glyph asked for while it was being packed: this is the safe point for
-    // it, because nothing is batched yet and no quad is holding coordinates that are about to move.
-    // Then throw away whatever is being retained, because those coordinates just changed — the repack
-    // above, or one from an earlier frame that this canvas has not seen yet.
-    FontCache::repackDeferredFonts();
+    // BEFORE ANYTHING IS SUBMITTED. A repack during the last frame left stale glyph coordinates in
+    // whatever was batched before it; this is where that frame stops being kept.
     checkFontAtlasRepack();
     default_region_.computeBackdropCount();
     int submission = submit_pass;

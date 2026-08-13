@@ -195,8 +195,7 @@ namespace visage {
                             bgfx::copy(texture.get(), size * kChannels));
     }
 
-    const PackedGlyph* packCharacterGlyph(PackedGlyph* packed_glyph, const TypeFace* type_face,
-                                          char32_t character) {
+    PackedGlyph* packCharacterGlyph(PackedGlyph* packed_glyph, const TypeFace* type_face, char32_t character) {
       static constexpr float kAdvanceMult = 1.0f / (1 << 6);
 
       FT_GlyphSlot glyph = type_face->characterInfo(character);
@@ -207,16 +206,11 @@ namespace visage {
       packed_glyph->x_advance = glyph->advance.x * kAdvanceMult;
       packed_glyph->type_face = type_face;
 
-      // A NULL GLYPH FOR THIS FRAME rather than an unplaced one, and never a stale one: width zero is
-      // what '\n' already gets, so every consumer downstream already skips it. The cost is that this
-      // frame lays the string out without this glyph's advance — one frame of slightly narrower text
-      // against one frame of garbage, which is the trade tier 2 exists to make.
-      if (!packGlyph(packed_glyph, character))
-        return &Font::kNullPackedGlyph;
+      packGlyph(packed_glyph, character);
       return packed_glyph;
     }
 
-    const PackedGlyph* packEmojiGlyph(PackedGlyph* packed_glyph, char32_t emoji) {
+    PackedGlyph* packEmojiGlyph(PackedGlyph* packed_glyph, char32_t emoji) {
       int raster_width = lineHeight();
       packed_glyph->width = raster_width;
       packed_glyph->height = raster_width;
@@ -224,8 +218,7 @@ namespace visage {
       packed_glyph->y_offset = size_;
       packed_glyph->x_advance = raster_width;
 
-      if (!packGlyph(packed_glyph, emoji))
-        return &Font::kNullPackedGlyph;
+      packGlyph(packed_glyph, emoji);
       return packed_glyph;
     }
 
@@ -255,17 +248,6 @@ namespace visage {
       }
     }
 
-    /// Perform a repack that packGlyph asked for. Called at the top of a frame, where nothing is
-    /// batched and nothing is mid-submit — the safe point the inline repack never had.
-    bool repackIfNeeded() {
-      if (!needs_repack_)
-        return false;
-
-      needs_repack_ = false;
-      resize();
-      return true;
-    }
-
     int atlasWidth() const { return atlas_map_.width(); }
     int atlasHeight() const { return atlas_map_.height(); }
     bgfx::TextureHandle& textureHandle() { return texture_handle_; }
@@ -276,36 +258,16 @@ namespace visage {
     const std::string& id() const { return id_; }
 
   private:
-    /// Place this glyph in the atlas, or ask for a repack and give up on it for now.
-    ///
-    /// DEFERRED RATHER THAN IMMEDIATE, which is the whole of tier 2. Repacking here means repacking
-    /// wherever a glyph happens to be first needed — and that can be in the middle of a submit, with
-    /// quads already written against the old packing and the texture handle destroyed under them. One
-    /// frame of garbage follows, and a retained buffer then keeps it. So the repack is asked for and
-    /// performed at the top of the next frame instead, where nothing is batched yet.
-    ///
-    /// THE RECT IS REGISTERED EVEN WHEN IT DOES NOT FIT — `PackedAtlasMap::addRect` records the id and
-    /// pushes a rect at (0, 0) before asking the incremental packer to place it. So a deferred glyph
-    /// must NOT take coordinates from the map: it would read (0, 0), draw whatever glyph is at the
-    /// origin, and rasterizing would blit its bitmap over that glyph's pixels. It must also not be
-    /// re-added on the next attempt, which is what hasId() below is for — a duplicate would leave the
-    /// lookup pointing at the older index forever.
-    ///
-    /// The glyph heals by itself: resize() assigns coordinates to every registered rect, so after the
-    /// repack this one is packed like any other and the next frame draws it.
-    bool packGlyph(PackedGlyph* packed_glyph, char32_t character) {
-      if (!atlas_map_.hasId(character)
-          && !atlas_map_.addRect(character, packed_glyph->width, packed_glyph->height)) {
-        needs_repack_ = true;
-        return false;
-      }
+    void packGlyph(PackedGlyph* packed_glyph, char32_t character) {
+      if (!atlas_map_.addRect(character, packed_glyph->width, packed_glyph->height))
+        resize();
+
       const PackedRect& rect = atlas_map_.rectForId(character);
       packed_glyph->atlas_left = rect.x;
       packed_glyph->atlas_top = rect.y;
 
       if (bgfx::isValid(texture_handle_))
         rasterizeGlyph(character, packed_glyph);
-      return true;
     }
 
     PackedAtlasMap<char32_t> atlas_map_;
@@ -314,9 +276,6 @@ namespace visage {
     int size_ = 0;
     std::unique_ptr<unsigned char[]> data_;
     int data_size_ = 0;
-
-    /// Set when a glyph did not fit, cleared when the repack it asked for has been done.
-    bool needs_repack_ = false;
 
     std::map<char32_t, PackedGlyph> packed_glyphs_;
     bgfx::TextureHandle texture_handle_ = { bgfx::kInvalidHandle };
@@ -550,14 +509,6 @@ namespace visage {
   }
 
   FontCache::~FontCache() = default;
-
-  bool FontCache::repackDeferredFonts() {
-    bool repacked = false;
-    for (auto& font : instance()->cache_)
-      repacked = font.second->repackIfNeeded() || repacked;
-
-    return repacked;
-  }
 
   PackedFont* FontCache::loadPackedFont(int size, const std::string& file_path) {
     std::string id = "file: " + file_path + " - " + std::to_string(size);
