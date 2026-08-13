@@ -291,9 +291,7 @@ namespace visage {
             coordinate_index3 = 2;
           }
 
-          PackedBrush::setVertexGradientPositions(text_block.brush, vertices + vertex_index,
-                                                  length * kVerticesPerQuad, x, y, batch.x, batch.y,
-                                                  x + text_block.width, y + text_block.height);
+          const int block_start = vertex_index;
 
           for (int i = 0; i < length; ++i) {
             if (!overlaps(text_block.quads[i]))
@@ -339,6 +337,15 @@ namespace visage {
 
             vertex_index += kVerticesPerQuad;
           }
+
+          // For the quads this rect ACTUALLY wrote, not for every glyph in the block. `length` counts
+          // the whole block, but only the glyphs overlapping this invalid rect advance vertex_index —
+          // and the buffer was allocated from that overlapping count. Writing length quads' worth from
+          // here therefore ran off the end whenever a text block was partially clipped, which is the
+          // ordinary case for a small damage rect.
+          PackedBrush::setVertexGradientPositions(text_block.brush, vertices + block_start,
+                                                  vertex_index - block_start, x, y, batch.x, batch.y,
+                                                  x + text_block.width, y + text_block.height);
         }
       }
     }
