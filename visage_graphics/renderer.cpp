@@ -120,23 +120,33 @@ namespace visage {
     // This pool is what every quad batch in a frame allocates from, and it is per FRAME and shared.
     // When it runs out, `allocTransientBuffers` fails and the batch that asked is skipped ENTIRELY:
     // every shape of that type, in every region. bgfx defaults it to 6 MB, which at 112 bytes per
-    // ShapeVertex is 56173 vertices — 14043 quads for the whole frame. That is not many, and it is
-    // BELOW the 16384 the index space can address, so on a default build the arena is what a dense
-    // frame meets first, silently: the only report there is compiled out under NDEBUG.
+    // ShapeVertex is 14043 quads for the whole frame — and that is BELOW the 16384 quads the uint16
+    // index space can address, so on a default build a dense frame meets the arena first, silently,
+    // with the only report compiled out under NDEBUG.
     //
-    // 32 MB is 74898 quads. The census (tools/quad-census.cpp) drives the Explore surface through
-    // the automation recipe that provoked the fault and reports a worst frame of 13067 quads, of
-    // which 12892 are the terrain drawing one quad per texel. So this is a little over 4x the worst
-    // frame measured today — and that measurement is a FULL repaint, while a frame damaging several
-    // rectangles multiplies the shapes spanning them. That is part of what the headroom is for.
+    // 8 MB is 18724 quads, and the size is chosen for WHICH CEILING BINDS rather than for a
+    // multiple.
+    // Above 16384, the first limit a growing batch meets is the index space, and that one is
+    // handled:
+    // the batch is split into runs and the frame comes out right. Below it, the first limit is the
+    // arena, and that one loses the batch. Given a choice between a failure mode that is corrected
+    // and one that is silent, the arena should be the one that never binds.
     //
-    // IT WILL SOON BE FAR MORE THAN NEEDED, and that is fine. Once the terrain is one textured quad
-    // rather than 12892 fills, the same worst frame is 176 quads and this could drop to
-    // single-digit megabytes. Revisit it then, with the census rather than by eye.
+    // The headroom on top is large and cheap. tools/quad-census.cpp drives the Explore surface
+    // through
+    // the automation recipe that provoked the original fault and reports a worst frame of 230
+    // quads,
+    // so this is about eighty times what the surface asks for. It was 32 MB while the terrain drew
+    // one
+    // quad per texel and a frame reached 13067; the terrain is one textured quad now, so the same
+    // recipe measures 230 and the pool comes down by a factor of four.
     //
-    // The index buffer is left alone deliberately: 6 uint16 indices per quad is 12 bytes, so the 2
-    // MB default already covers 174762 quads, well past what the vertex side allows.
-    bgfx_init.limits.transientVbSize = 32 << 20;
+    // The census measures ONE surface, not the assembled editor. That is why the number to reason
+    // about is the eighty-times margin rather than the 230.
+    //
+    // The index buffer is left alone deliberately: 6 uint16 indices per quad is 12 bytes, so the
+    // 2 MB default already covers 174762 quads, well past what the vertex side allows.
+    bgfx_init.limits.transientVbSize = 8 << 20;
 
     bgfx_init.platformData.ndt = display;
     bgfx_init.platformData.nwh = model_window;
