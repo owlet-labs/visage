@@ -146,6 +146,15 @@ namespace visage {
     //
     // The index buffer is left alone deliberately: 6 uint16 indices per quad is 12 bytes, so the
     // 2 MB default already covers 174762 quads, well past what the vertex side allows.
+    //
+    // WHAT IT COSTS IS TWICE WHAT IT SAYS. bgfx allocates a transient vertex buffer of this size,
+    // calls `frame()` — which swaps the submit and render contexts — and, under
+    // BGFX_CONFIG_MULTITHREADED, allocates a second one of the same size for the context that
+    // swapped in (bgfx.cpp, Context::init: the two `createTransientVertexBuffer` calls either side
+    // of the first `frame()`). That is the arrangement bgfx is built in here, so 8 MB is about
+    // 16 MB resident, and the untouched 2 MB index default is 4 MB. Worth stating where the number
+    // is chosen rather than leaving somebody to find it in a memory profile: whatever this line is
+    // set to, the machine is asked for double.
     bgfx_init.limits.transientVbSize = 8 << 20;
 
     bgfx_init.platformData.ndt = display;
