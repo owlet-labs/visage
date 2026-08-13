@@ -81,6 +81,11 @@ namespace visage {
     if (!enabled) {
       return;
     }
+    // POSIX ONLY, AND THIS HEADER IS INCLUDED WIDELY. clock_gettime and <ctime>'s CLOCK_REALTIME are
+    // not available under MSVC, and this fork's CMake carries an MSVC branch — so a Windows build of
+    // it would fail here rather than at the one call site. The C11 spelling that compiles everywhere
+    // is `timespec_get(&ts, TIME_UTC)`, which is what this becomes if the trace is ever wanted off
+    // POSIX. Left as it is deliberately: it has one purpose, on one machine, chasing one bug.
     struct timespec ts {};
     clock_gettime(CLOCK_REALTIME, &ts);
     std::fprintf(stderr, "[VISAGE-ATLAS] %s resize -> %d at %lld\n", which, newWidth,
