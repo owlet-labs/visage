@@ -29,10 +29,12 @@
 
 #include "visage_utils/defines.h"
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace bgfx {
@@ -93,6 +95,71 @@ namespace visage {
     std::fflush(stderr);
   }
   static constexpr int kIndicesPerQuad = 6;
+
+  /// THE CEILING A QUAD BATCH CANNOT SEE PAST, and it is arithmetic rather than a policy.
+  ///
+  /// `initTransientQuadBuffers` writes its indices into a `uint16_t` buffer, quad `i` addressing
+  /// vertices `4i .. 4i+3`. So the highest quad that can be addressed is index 16383, holding
+  /// vertices 65532..65535 — and one more than that wraps. Quad 16384 asks for 65536..65539,
+  /// which truncate to 0..3, and it draws over the FIRST quad's geometry. Silently: no cap, no
+  /// error and no assert anywhere on that path. The frame comes out wrong wherever those shapes
+  /// were, and nothing says why.
+  ///
+  /// Mind which number is which, because they are one apart and either confusion is a real bug:
+  /// 16383 is the highest quad INDEX, 16384 is the highest quad COUNT that fits.
+  static constexpr int kMaxQuadsPerBatch = 65536 / kVerticesPerQuad;
+
+  /// Where a batch stops being comfortable. Nothing is wrong at 15000 — it is the distance that
+  /// matters, since a count that moves with what is on screen can cross the ceiling between one
+  /// frame and the next, and the frame BEFORE the corrupt one is the one worth seeing.
+  static constexpr int kQuadCountWarn = 15000;
+
+  /// OPT-IN BATCH TRACE, sibling of the atlas trace above and gated the same way: off unless
+  /// VISAGE_TRACE_BATCH is set, read once into a function-local static, so a build with the
+  /// variable unset pays one predictable branch on a path that already allocates GPU buffers.
+  ///
+  /// TWO HALVES, DELIBERATELY DIFFERENT. The warning half is opt-in — a big batch is interesting,
+  /// not wrong, and nobody wants that line in an ordinary session. The overflow half is not: by
+  /// the time it fires the frame is already corrupt, and a corruption that only reports in a build
+  /// you must first reproduce it in is a corruption you mostly do not catch. So it prints in
+  /// release too, and asserts on top of that in debug.
+  ///
+  /// THOUGH NOT WHEN THE TRACE IS ON. Somebody who set VISAGE_TRACE_BATCH asked to WATCH overflows
+  /// happen, and trapping on the first one is the opposite of that — it would also make an
+  /// overflow impossible to exercise deliberately in a debug build, which is exactly what a
+  /// control has to do. The line is printed either way; only the trap is disarmed.
+  ///
+  /// AND THE REPORT IS BOUNDED. An overflowing batch is normally a per-frame condition, so an
+  /// ungated report would be sixty lines a second into somebody's log. After a handful it says so
+  /// and goes quiet. The opt-in half is not bounded: whoever turned it on wants all of them.
+  inline void traceBatchQuads(std::string_view which, int num_quads) {
+    static const bool enabled = std::getenv("VISAGE_TRACE_BATCH") != nullptr;
+
+    if (num_quads > kMaxQuadsPerBatch) {
+      static constexpr int kMaxOverflowReports = 8;
+      static std::atomic<int> reports { 0 };
+      const int seen = reports.load(std::memory_order_relaxed);
+      if (seen < kMaxOverflowReports) {
+        reports.store(seen + 1, std::memory_order_relaxed);
+        const bool last = seen + 1 == kMaxOverflowReports;
+        std::fprintf(stderr,
+                     "[VISAGE-BATCH] OVERFLOW %.*s %d quads > %d, quad %d on wraps to 0%s\n",
+                     static_cast<int>(which.size()), which.data(), num_quads, kMaxQuadsPerBatch,
+                     kMaxQuadsPerBatch, last ? " (further reports suppressed)" : "");
+        std::fflush(stderr);
+      }
+      if (!enabled) {
+        VISAGE_ASSERT(num_quads <= kMaxQuadsPerBatch);
+      }
+      return;
+    }
+
+    if (enabled && num_quads > kQuadCountWarn) {
+      std::fprintf(stderr, "[VISAGE-BATCH] warn %.*s %d quads, ceiling %d\n",
+                   static_cast<int>(which.size()), which.data(), num_quads, kMaxQuadsPerBatch);
+      std::fflush(stderr);
+    }
+  }
 
   bool preprocessWebGlShader(std::string& result, const std::string& code,
                              const std::string& utils_source, const std::string& varying_source);

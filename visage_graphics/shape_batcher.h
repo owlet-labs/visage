@@ -59,11 +59,39 @@ namespace visage {
 
   bool initTransientQuadBuffers(int num_quads, const bgfx::VertexLayout& layout,
                                 bgfx::TransientVertexBuffer* vertex_buffer,
-                                bgfx::TransientIndexBuffer* index_buffer);
-  uint8_t* initQuadVerticesWithLayout(int num_quads, const bgfx::VertexLayout& layout);
+                                bgfx::TransientIndexBuffer* index_buffer, std::string_view which);
+  uint8_t* initQuadVerticesWithLayout(int num_quads, const bgfx::VertexLayout& layout,
+                                      std::string_view which);
   template<typename T>
-  T* initQuadVertices(int num_quads) {
-    return reinterpret_cast<T*>(initQuadVerticesWithLayout(num_quads, T::layout()));
+  T* initQuadVertices(int num_quads, std::string_view which) {
+    return reinterpret_cast<T*>(initQuadVerticesWithLayout(num_quads, T::layout(), which));
+  }
+
+  /// THE BATCH'S OWN NAME, so an overflow line says WHICH kind of shape ran past the ceiling.
+  /// That is most of the diagnostic value: a count on its own says a frame is corrupt, and the
+  /// type says where to look for the thing that grew.
+  ///
+  /// Read out of the compiler's signature for this function rather than from `typeid`, which
+  /// needs RTTI and yields a mangled name that would then want demangling to be worth printing.
+  /// Everything here is constexpr — `find`, `find_first_of` and `substr` all are since C++17 —
+  /// so a caller that binds the result to a `static constexpr` pays nothing at runtime for it.
+  template<typename T>
+  constexpr std::string_view batchTypeName() {
+#if defined(__GNUC__) || defined(__clang__)
+    constexpr std::string_view marker = "T = ";
+    const std::string_view signature = __PRETTY_FUNCTION__;
+    const size_t found = signature.find(marker);
+    if (found == std::string_view::npos)
+      return "shape";
+
+    const size_t begin = found + marker.size();
+    const size_t end = signature.find_first_of(";]", begin);
+    return signature.substr(begin, end - begin);
+#else
+    // MSVC spells it __FUNCSIG__ and lays it out differently. Not worth a second parser for a name
+    // that only ever appears inside a diagnostic — the count and the ceiling are still right.
+    return "shape";
+#endif
   }
 
   void submitShapes(const Layer& layer, const EmbeddedFile& vertex_shader,
@@ -93,7 +121,8 @@ namespace visage {
     if (results.num_shapes == 0)
       return results;
 
-    results.vertices = initQuadVertices<typename T::Vertex>(results.num_shapes);
+    static constexpr std::string_view kBatchName = batchTypeName<T>();
+    results.vertices = initQuadVertices<typename T::Vertex>(results.num_shapes, kBatchName);
     if (results.vertices == nullptr)
       return results;
     int vertex_index = 0;

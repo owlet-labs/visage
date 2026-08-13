@@ -121,7 +121,13 @@ namespace visage {
 
   bool initTransientQuadBuffers(int num_quads, const bgfx::VertexLayout& layout,
                                 bgfx::TransientVertexBuffer* vertex_buffer,
-                                bgfx::TransientIndexBuffer* index_buffer) {
+                                bgfx::TransientIndexBuffer* index_buffer, std::string_view which) {
+    // BEFORE THE ALLOCATION, not after, and the ordering is the point. The COUNT is what
+    // overflows — the loop below writes `4i + 3` into a uint16 — so it wants reporting whether or
+    // not there happened to be transient memory for it. A batch that fails to allocate and a batch
+    // that wraps both leave the frame wrong, and only one of the two says anything today.
+    traceBatchQuads(which, num_quads);
+
     int num_vertices = num_quads * kVerticesPerQuad;
     int num_indices = num_quads * kIndicesPerQuad;
     if (!bgfx::allocTransientBuffers(vertex_buffer, layout, num_vertices, index_buffer, num_indices)) {
@@ -140,10 +146,11 @@ namespace visage {
     return true;
   }
 
-  uint8_t* initQuadVerticesWithLayout(int num_quads, const bgfx::VertexLayout& layout) {
+  uint8_t* initQuadVerticesWithLayout(int num_quads, const bgfx::VertexLayout& layout,
+                                      std::string_view which) {
     bgfx::TransientVertexBuffer vertex_buffer {};
     bgfx::TransientIndexBuffer index_buffer {};
-    if (!initTransientQuadBuffers(num_quads, layout, &vertex_buffer, &index_buffer))
+    if (!initTransientQuadBuffers(num_quads, layout, &vertex_buffer, &index_buffer, which))
       return nullptr;
 
     bgfx::setVertexBuffer(0, &vertex_buffer);
@@ -231,7 +238,7 @@ namespace visage {
     if (total_length == 0)
       return;
 
-    TextureVertex* vertices = initQuadVertices<TextureVertex>(total_length);
+    TextureVertex* vertices = initQuadVertices<TextureVertex>(total_length, "TextBlock");
     if (vertices == nullptr)
       return;
 
