@@ -170,10 +170,28 @@ namespace visage {
   }
 
   void DownsamplePostEffect::setInitialVertices(Region* region) {
+    // CHECK THE SIZE THAT CAME BACK, NOT THE POINTER, because this is the one transient entry point
+    // in visage that CLAMPS rather than failing.
+    //
+    // `bgfx::allocTransientVertexBuffer` — the single-buffer form — passes the count down to
+    // `Frame::allocTransientVertexBuffer`, which takes it BY REFERENCE and overwrites it with
+    // whatever the arena had left. bgfx notices only through a `BX_ASSERT`, which is compiled out of
+    // release. So on a nearly-full arena this returns fewer than four vertices and says nothing.
+    //
+    // The null check that stood here alone could not catch that: the pointer is `data + offset` and
+    // stays non-null even when the clamped count is zero. The four writes below then ran off the end
+    // of the allocation and into the next one — which, in a pool shared by every batch in the frame,
+    // is somebody else's geometry.
+    //
+    // Everywhere else in visage uses the DUAL `bgfx::allocTransientBuffers`, which pre-checks both
+    // sizes for an exact match and refuses rather than clamping. This is the only caller of the
+    // clamping form, and dropping the effect for one frame is what a refused batch already gets
+    // everywhere else.
     bgfx::TransientVertexBuffer first_sample_buffer {};
     bgfx::allocTransientVertexBuffer(&first_sample_buffer, 4, UvVertex::layout());
     UvVertex* uv_data = reinterpret_cast<UvVertex*>(first_sample_buffer.data);
-    if (uv_data == nullptr)
+    if (uv_data == nullptr ||
+        first_sample_buffer.size < kVerticesPerQuad * UvVertex::layout().getStride())
       return;
 
     for (int i = 0; i < kVerticesPerQuad; ++i) {
