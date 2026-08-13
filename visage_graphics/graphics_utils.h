@@ -134,6 +134,31 @@ namespace visage {
     return enabled;
   }
 
+  /// QUADS HANDED TO THE BATCHER SINCE THIS FRAME BEGAN, across every batch in it.
+  ///
+  /// Not gated on anything, unlike the trace, because the interesting quantity is a per-FRAME total
+  /// and a batch that declined to report is still one that consumed arena. An atomic add per batch,
+  /// a handful per frame, sits far below noise — and having the number always available is what
+  /// makes it possible to size the arena from measurement instead of from a guess.
+  ///
+  /// `Canvas::submit` zeroes it as a frame begins, so a caller reads the frame it just submitted.
+  inline std::atomic<uint64_t>& batchQuadCounter() {
+    static std::atomic<uint64_t> counter { 0 };
+    return counter;
+  }
+
+  inline void countBatchQuads(int num_quads) {
+    batchQuadCounter().fetch_add(static_cast<uint64_t>(num_quads), std::memory_order_relaxed);
+  }
+
+  inline void resetBatchQuadCount() {
+    batchQuadCounter().store(0, std::memory_order_relaxed);
+  }
+
+  inline uint64_t batchQuadsThisFrame() {
+    return batchQuadCounter().load(std::memory_order_relaxed);
+  }
+
   /// OPT-IN BATCH TRACE, sibling of the atlas trace above and gated the same way: off unless
   /// VISAGE_TRACE_BATCH is set, read once into a function-local static, so a build with the
   /// variable unset pays one predictable branch on a path that already allocates GPU buffers.
@@ -190,6 +215,23 @@ namespace visage {
                    kMaxQuadsPerBatch, available_quads);
       std::fflush(stderr);
     }
+  }
+
+  /// A BATCH THAT HAD TO BE SPLIT, which is no longer a fault — it is a cost.
+  ///
+  /// Past 16384 quads a batch is submitted in runs rather than wrapping its indices, so the frame
+  /// is correct and pays an extra draw call per run. Worth seeing while tracing, because the
+  /// per-batch total is otherwise invisible once it has been chunked: every report below this point
+  /// describes a RUN, and a run at the ceiling could be one of two or one of twenty.
+  ///
+  /// Opt-in only. Nothing is wrong when this fires.
+  inline void traceBatchSplit(std::string_view which, int num_quads, int runs) {
+    if (!batchTraceEnabled()) {
+      return;
+    }
+    std::fprintf(stderr, "[VISAGE-BATCH] SPLIT %.*s %d quads into %d runs of at most %d\n",
+                 static_cast<int>(which.size()), which.data(), num_quads, runs, kMaxQuadsPerBatch);
+    std::fflush(stderr);
   }
 
   /// A WHOLE BATCH GOING MISSING, which is the failure that actually fires — and until now the one

@@ -97,6 +97,14 @@ namespace visage {
   void submitShapes(const Layer& layer, const EmbeddedFile& vertex_shader,
                     const EmbeddedFile& fragment_shader, bool radial_gradient, int submit_pass);
 
+  /// How many more ShapeVertex quads the transient arena can serve THIS FRAME.
+  ///
+  /// Falls as a frame fills up, since the pool is shared by every batch in it — which is the whole
+  /// character of this limit and the reason a per-surface budget cannot express it. Quoted in
+  /// ShapeVertex quads because that is the widest vertex and so the pessimistic count; a batch of a
+  /// narrower vertex type gets more.
+  int transientQuadCapacity();
+
   void setImageAtlasUniform(const BatchVector<ImageWrapper>& batches);
   void setGraphDataUniform(const BatchVector<GraphLineWrapper>& batches);
   void setGraphDataUniform(const BatchVector<GraphFillWrapper>& batches);
@@ -148,14 +156,99 @@ namespace visage {
     return results;
   }
 
+  /// How far a chunked walk got: which batch, which shape within it, which invalid rect of that
+  /// shape. All three are needed to resume, because a piece is a (shape, rect) pair and a shape
+  /// spanning several damage rectangles can straddle a chunk boundary.
+  struct QuadCursor {
+    size_t batch = 0;
+    size_t shape = 0;
+    size_t rect = 0;
+  };
+
+  /// Writes up to `max_quads` pieces from where the cursor left off, and leaves the cursor on the
+  /// first piece it did NOT write. Returns how many it wrote.
+  ///
+  /// The same walk and the same clamp predicate as `setupQuads`, so the piece it stops on is
+  /// exactly the one the next run starts with: nothing is drawn twice and nothing is skipped.
   template<typename T>
-  static void submitBaseShapes(const BatchVector<T>& batches, BlendMode state, Layer& layer, int submit_pass) {
-    auto quads = setupQuads(batches);
-    if (quads.vertices == nullptr)
+  int fillQuadChunk(const BatchVector<T>& batches, QuadCursor& cursor, typename T::Vertex* vertices,
+                    int max_quads, bool* radial_gradient) {
+    int written = 0;
+    for (; cursor.batch < batches.size(); ++cursor.batch, cursor.shape = 0) {
+      const auto& batch = batches[cursor.batch];
+      for (; cursor.shape < batch.shapes->size(); ++cursor.shape, cursor.rect = 0) {
+        const T& shape = (*batch.shapes)[cursor.shape];
+        for (; cursor.rect < batch.invalid_rects->size(); ++cursor.rect) {
+          const IBounds& invalid_rect = (*batch.invalid_rects)[cursor.rect];
+          ClampBounds clamp = shape.clamp.clamp(invalid_rect.x() - batch.x, invalid_rect.y() - batch.y,
+                                                invalid_rect.width(), invalid_rect.height());
+          if (shape.totallyClamped(clamp))
+            continue;
+
+          // FULL. Returning HERE — before the write, and before the cursor advances past this piece
+          // — is what makes the next run resume on this very piece rather than the one after it.
+          if (written == max_quads)
+            return written;
+
+          clamp = clamp.withOffset(batch.x, batch.y);
+          setQuadPositions(vertices + written * kVerticesPerQuad, shape, clamp, batch.x, batch.y);
+          shape.setVertexData(vertices + written * kVerticesPerQuad);
+          *radial_gradient = shape.radialGradient();
+          ++written;
+        }
+      }
+    }
+    return written;
+  }
+
+  /// SPLIT AT THE INDEX CEILING, because one draw call cannot address more than 16384 quads.
+  ///
+  /// Quad indices are `uint16_t` (see `initTransientQuadBuffers`), so a batch past that wraps and
+  /// redraws its own head in place of its tail. Rather than cap the batch — which would drop
+  /// geometry just as silently — it is submitted in runs of at most 16384. The cost is one extra
+  /// draw call per run, paid only by batches that would otherwise have come out wrong.
+  ///
+  /// `prepare` re-applies whatever uniforms and textures this shape type needs, ONCE PER RUN, and
+  /// that is not optional: `bgfx::submit` defaults to BGFX_DISCARD_ALL, so everything bound for a
+  /// draw is gone after it. Binding before the loop would leave every run after the first drawing
+  /// with nothing bound.
+  ///
+  /// A run that cannot allocate stops the walk and keeps what was already drawn. Partial geometry
+  /// is not good, but it beats losing the whole batch, and the failure reports itself.
+  template<typename T, typename Prepare>
+  static void submitBaseShapes(const BatchVector<T>& batches, BlendMode state, Layer& layer,
+                               int submit_pass, Prepare&& prepare) {
+    const int total = numShapes(batches);
+    if (total == 0)
       return;
 
-    setBlendMode(state);
-    submitShapes(layer, T::vertexShader(), T::fragmentShader(), quads.radial_gradient, submit_pass);
+    static constexpr std::string_view kBatchName = batchTypeName<T>();
+    if (total > kMaxQuadsPerBatch) {
+      traceBatchSplit(kBatchName, total, (total + kMaxQuadsPerBatch - 1) / kMaxQuadsPerBatch);
+    }
+
+    QuadCursor cursor;
+    for (int done = 0; done < total;) {
+      const int remaining = total - done;
+      const int chunk = remaining < kMaxQuadsPerBatch ? remaining : kMaxQuadsPerBatch;
+      typename T::Vertex* vertices = initQuadVertices<typename T::Vertex>(chunk, kBatchName);
+      if (vertices == nullptr)
+        return;
+
+      bool radial_gradient = false;
+      const int written = fillQuadChunk(batches, cursor, vertices, chunk, &radial_gradient);
+      VISAGE_ASSERT(written == chunk);
+      done += written;
+
+      prepare();
+      setBlendMode(state);
+      submitShapes(layer, T::vertexShader(), T::fragmentShader(), radial_gradient, submit_pass);
+    }
+  }
+
+  template<typename T>
+  static void submitBaseShapes(const BatchVector<T>& batches, BlendMode state, Layer& layer, int submit_pass) {
+    submitBaseShapes(batches, state, layer, submit_pass, [] { });
   }
 
   template<typename T>
@@ -166,41 +259,33 @@ namespace visage {
   template<>
   inline void submitShapes<PathFillWrapper>(const BatchVector<PathFillWrapper>& batches,
                                             BlendMode state, Layer& layer, int submit_pass) {
-    setBlendMode(state);
-    setPathDataUniform(batches);
-    submitBaseShapes(batches, state, layer, submit_pass);
+    // PER RUN, not once: a chunked batch submits more than one draw and bgfx discards bound state
+    // after each. See submitBaseShapes.
+    submitBaseShapes(batches, state, layer, submit_pass, [&] { setPathDataUniform(batches); });
   }
 
   template<>
   inline void submitShapes<ImageWrapper>(const BatchVector<ImageWrapper>& batches, BlendMode state,
                                          Layer& layer, int submit_pass) {
-    setBlendMode(state);
-    setImageAtlasUniform(batches);
-    submitBaseShapes(batches, state, layer, submit_pass);
+    submitBaseShapes(batches, state, layer, submit_pass, [&] { setImageAtlasUniform(batches); });
   }
 
   template<>
   inline void submitShapes<GraphLineWrapper>(const BatchVector<GraphLineWrapper>& batches,
                                              BlendMode state, Layer& layer, int submit_pass) {
-    setBlendMode(state);
-    setGraphDataUniform(batches);
-    submitBaseShapes(batches, state, layer, submit_pass);
+    submitBaseShapes(batches, state, layer, submit_pass, [&] { setGraphDataUniform(batches); });
   }
 
   template<>
   inline void submitShapes<GraphFillWrapper>(const BatchVector<GraphFillWrapper>& batches,
                                              BlendMode state, Layer& layer, int submit_pass) {
-    setBlendMode(state);
-    setGraphDataUniform(batches);
-    submitBaseShapes(batches, state, layer, submit_pass);
+    submitBaseShapes(batches, state, layer, submit_pass, [&] { setGraphDataUniform(batches); });
   }
 
   template<>
   inline void submitShapes<HeatMapWrapper>(const BatchVector<HeatMapWrapper>& batches,
                                            BlendMode state, Layer& layer, int submit_pass) {
-    setBlendMode(state);
-    setHeatMapDataUniform(batches);
-    submitBaseShapes(batches, state, layer, submit_pass);
+    submitBaseShapes(batches, state, layer, submit_pass, [&] { setHeatMapDataUniform(batches); });
   }
 
   template<>

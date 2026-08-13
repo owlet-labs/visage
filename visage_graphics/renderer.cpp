@@ -115,6 +115,29 @@ namespace visage {
     bgfx_init.resolution.height = 0;
     bgfx_init.callback = callback_handler_.get();
 
+    // THE TRANSIENT VERTEX ARENA, SIZED FROM A CENSUS RATHER THAN LEFT AT THE DEFAULT.
+    //
+    // This pool is what every quad batch in a frame allocates from, and it is per FRAME and shared.
+    // When it runs out, `allocTransientBuffers` fails and the batch that asked is skipped ENTIRELY:
+    // every shape of that type, in every region. bgfx defaults it to 6 MB, which at 112 bytes per
+    // ShapeVertex is 56173 vertices — 14043 quads for the whole frame. That is not many, and it is
+    // BELOW the 16384 the index space can address, so on a default build the arena is what a dense
+    // frame meets first, silently: the only report there is compiled out under NDEBUG.
+    //
+    // 32 MB is 74898 quads. The census (tools/quad-census.cpp) drives the Explore surface through
+    // the automation recipe that provoked the fault and reports a worst frame of 13067 quads, of
+    // which 12892 are the terrain drawing one quad per texel. So this is a little over 4x the worst
+    // frame measured today — and that measurement is a FULL repaint, while a frame damaging several
+    // rectangles multiplies the shapes spanning them. That is part of what the headroom is for.
+    //
+    // IT WILL SOON BE FAR MORE THAN NEEDED, and that is fine. Once the terrain is one textured quad
+    // rather than 12892 fills, the same worst frame is 176 quads and this could drop to
+    // single-digit megabytes. Revisit it then, with the census rather than by eye.
+    //
+    // The index buffer is left alone deliberately: 6 uint16 indices per quad is 12 bytes, so the 2
+    // MB default already covers 174762 quads, well past what the vertex side allows.
+    bgfx_init.limits.transientVbSize = 32 << 20;
+
     bgfx_init.platformData.ndt = display;
     bgfx_init.platformData.nwh = model_window;
     bgfx_init.platformData.type = bgfx::NativeWindowHandleType::Default;

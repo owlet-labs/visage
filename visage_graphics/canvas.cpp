@@ -85,6 +85,11 @@ namespace visage {
   }
 
   int Canvas::submit(int submit_pass) {
+    // A FRAME BEGINS HERE, so the quad census starts from zero here. Read `batchQuadsThisFrame`
+    // after submit returns and it is what this frame handed the batcher across every batch — which
+    // is the quantity a transient arena has to be sized against.
+    resetBatchQuadCount();
+
     // BEFORE ANYTHING IS SUBMITTED, and in this order.
     //
     // First perform any repack a glyph asked for while it was being packed: this is the safe point for

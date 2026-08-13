@@ -122,13 +122,21 @@ namespace visage {
   bool initTransientQuadBuffers(int num_quads, const bgfx::VertexLayout& layout,
                                 bgfx::TransientVertexBuffer* vertex_buffer,
                                 bgfx::TransientIndexBuffer* index_buffer, std::string_view which) {
-    // BEFORE THE ALLOCATION, not after, and the ordering is the point. The COUNT is what
-    // overflows — the loop below writes `4i + 3` into a uint16 — so it wants reporting whether or
+    // Counted whether or not anything is being traced, and whether or not the allocation below
+    // succeeds: what a frame ASKED FOR is the quantity an arena has to be sized against.
+    countBatchQuads(num_quads);
+
+    // BEFORE THE ALLOCATION, not after, and the ordering is the point. The COUNT is what would
+    // overflow — the loop below writes `4i + 3` into a uint16 — so it wants reporting whether or
     // not there happened to be transient memory for it.
     //
-    // The arena's remaining capacity goes with it, since the ceiling that bites is the LOWER of the
-    // two, and on a default build that is the arena. Only looked up while tracing: it is a cheap
-    // call, but it would otherwise run for every batch of every frame in a shipping build.
+    // Callers that chunk never reach the index ceiling, so an OVERFLOW here now means an UNCHUNKED
+    // path exceeded it — post effects, shaders and sample regions still allocate a batch whole. If
+    // one of those ever grows to five figures it is a real bug and this is what will say so.
+    //
+    // The arena's remaining capacity goes with it, since the warning is measured against whichever
+    // ceiling is lower. Only looked up while tracing: a cheap call, but it would otherwise run for
+    // every batch of every frame in a shipping build.
     traceBatchQuads(which, num_quads,
                     batchTraceEnabled() ?
                         static_cast<int>(bgfx::getAvailTransientVertexBuffer(1u << 24, layout)) /
@@ -138,10 +146,12 @@ namespace visage {
     int num_vertices = num_quads * kVerticesPerQuad;
     int num_indices = num_quads * kIndicesPerQuad;
     if (!bgfx::allocTransientBuffers(vertex_buffer, layout, num_vertices, index_buffer, num_indices)) {
-      // THE FAILURE THAT ACTUALLY FIRES. With a 112-byte ShapeVertex the 6 MB arena holds 14043
-      // quads for the whole frame — below the 16384 index ceiling, so THIS is what a too-large
-      // batch hits, and it drops the batch entirely. Reported on its own footing because the line
-      // below is compiled out under NDEBUG, which is exactly where it was needed.
+      // THE ARENA IS EXHAUSTED, and this batch is not drawn. On bgfx's 6 MB default that happened
+      // at 14043 quads for the WHOLE frame — below the index ceiling, so it was what a dense frame
+      // met first, silently. The arena is now sized from a census (see
+      // Renderer::checkInitialization) and this is rare, but it is still reachable and still loses
+      // geometry, so it still reports. On its own footing because the line below is compiled out
+      // under NDEBUG, which is where it was needed.
       //
       // The capacity is ASKED FOR rather than assumed: the arena is per-frame and shared, so what
       // matters is what was left when this batch asked, not what the pool holds when empty.
@@ -162,6 +172,12 @@ namespace visage {
     }
 
     return true;
+  }
+
+  int transientQuadCapacity() {
+    // A request no frame will reach, so what comes back is the remainder rather than the request.
+    return static_cast<int>(bgfx::getAvailTransientVertexBuffer(1u << 24, ShapeVertex::layout())) /
+           kVerticesPerQuad;
   }
 
   uint8_t* initQuadVerticesWithLayout(int num_quads, const bgfx::VertexLayout& layout,
