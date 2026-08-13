@@ -22,6 +22,7 @@
 #include "canvas.h"
 
 #include "palette.h"
+#include "font.h"
 #include "renderer.h"
 #include "theme.h"
 
@@ -69,7 +70,24 @@ namespace visage {
     setClampBounds(0, 0, width, height);
   }
 
+  bool Canvas::checkFontAtlasRepack() {
+    const uint64_t repacks = fontAtlasRepacks();
+    if (repacks == font_atlas_repacks_)
+      return false;
+
+    font_atlas_repacks_ = repacks;
+    // Every layer, not just the default region: a region drawn into an intermediate layer holds text
+    // too, and half an invalidation would leave the wedge wherever the other half was.
+    for (Layer* layer : layers_)
+      layer->invalidate();
+    composite_layer_.invalidate();
+    return true;
+  }
+
   int Canvas::submit(int submit_pass) {
+    // BEFORE ANYTHING IS SUBMITTED. A repack during the last frame left stale glyph coordinates in
+    // whatever was batched before it; this is where that frame stops being kept.
+    checkFontAtlasRepack();
     default_region_.computeBackdropCount();
     int submission = submit_pass;
     int last_submission = submission - 1;

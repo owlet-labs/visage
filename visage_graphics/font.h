@@ -144,6 +144,21 @@ namespace visage {
     PackedFont* packed_font_ = nullptr;
   };
 
+  /// How many times a font atlas has repacked in this process.
+  ///
+  /// A repack moves EVERY glyph's atlas coordinates and replaces the texture handle. Quads already
+  /// batched this frame keep the coordinates they were given, so they sample the new atlas with the old
+  /// packing — garbage, once, in whatever was drawn before the repack landed. With a retained buffer and
+  /// partial repaints that one bad frame is then preserved indefinitely: nothing invalidates those
+  /// rects, so nothing ever redraws them.
+  ///
+  /// Callers that keep a retained buffer compare this against the value they last saw and invalidate
+  /// everything when it moves. Canvas does exactly that — see Canvas::checkFontAtlasRepack — which turns
+  /// a permanent artefact into at worst one frame of flicker. The layer atlas already invalidates on its
+  /// own repack (Layer::addPackedRegion); this is the same idea for the one atlas that had no way to say
+  /// it had moved.
+  uint64_t fontAtlasRepacks();
+
   class FontCache {
   public:
     friend class Font;

@@ -25,12 +25,27 @@
 #include "visage_utils/file_system.h"
 #include "visage_utils/thread_utils.h"
 
+#include <atomic>
 #include <bgfx/bgfx.h>
 #include <freetype/freetype.h>
 #include <set>
 #include <vector>
 
 namespace visage {
+  namespace {
+    /// Bumped by every repack, read by anyone holding a retained buffer — see fontAtlasRepacks.
+    ///
+    /// Atomic because it is read outside the packing call, and a torn read of a counter would be a
+    /// missed invalidation: the reader would keep a corrupted frame forever on the strength of two
+    /// halves of a number that never existed. Relaxed is enough — nothing is ordered against it, and a
+    /// reader one frame late invalidates one frame late.
+    std::atomic<uint64_t> font_atlas_repacks { 0 };
+  }
+
+  uint64_t fontAtlasRepacks() {
+    return font_atlas_repacks.load(std::memory_order_relaxed);
+  }
+
 
   class FreeTypeLibrary {
   public:
@@ -137,9 +152,13 @@ namespace visage {
       }
 
       atlas_map_.pack();
-      // Traced AFTER the repack, so the width is the one that now applies. Everything above this line
-      // is what makes the event worth tracing at all: the texture handle is destroyed, the map is
-      // repacked, and every glyph's atlas coordinates move below.
+      // ANNOUNCED, so a retained buffer can throw itself away. Everything either side of this line is
+      // why: the texture handle is destroyed above, and every glyph's atlas coordinates move below, so
+      // any quad already batched this frame is now pointing at somebody else's pixels. Bumped before
+      // the coordinates move rather than after, so a reader can never see the new packing with the old
+      // count.
+      font_atlas_repacks.fetch_add(1, std::memory_order_relaxed);
+      // Traced AFTER the repack, so the width is the one that now applies.
       traceAtlasResize("FONT", atlas_map_.width());
       for (auto& glyph : packed_glyphs_) {
         if (glyph.second.width == 0)

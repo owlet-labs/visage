@@ -66,6 +66,21 @@ namespace visage {
     void clearDrawnShapes();
     int submit(int submit_pass = 0);
 
+    /// Throw the retained frame away if a font atlas has repacked since the last check.
+    ///
+    /// A repack moves every glyph's atlas coordinates, so quads batched before it landed sample the new
+    /// atlas with the old packing and come out as garbage — once. Partial repaints then preserve that
+    /// one bad frame indefinitely, because nothing marks those rects invalid and nothing ever redraws
+    /// them. Invalidating everything costs one full redraw and turns a permanent artefact into at worst
+    /// a single frame of flicker.
+    ///
+    /// Called at the top of submit(), and public because that is the only way to test the behaviour
+    /// without a GPU: the same call a frame makes, made by hand. Returns whether it invalidated.
+    ///
+    /// This is a MITIGATION and it says so: the corrupted frame is still drawn, it is simply no longer
+    /// kept. The repack remains unsafe against draws already submitted — see the note in font.h.
+    bool checkFontAtlasRepack();
+
     const Screenshot& takeScreenshot();
     const Screenshot& screenshot() const;
 
@@ -804,6 +819,10 @@ namespace visage {
     double delta_time_ = 0.0;
     int render_frame_ = 0;
     int last_skipped_frame_ = 0;
+    /// The repack count as of the last check. Starts at zero rather than at the current count, so a
+    /// canvas created after a repack redraws itself once — which it was going to do anyway on its first
+    /// frame, and which is cheaper than reasoning about whether it had to.
+    uint64_t font_atlas_repacks_ = 0;
 
     std::vector<State> state_memory_;
     State state_;
