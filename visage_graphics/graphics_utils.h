@@ -21,6 +21,12 @@
 
 #pragma once
 
+#include <ctime>
+
+#include <cstdlib>
+
+#include <cstdio>
+
 #include "visage_utils/defines.h"
 
 #include <cstdint>
@@ -56,6 +62,31 @@ namespace visage {
   static constexpr float kHdrColorRange = 4.0f;
   static constexpr float kHdrColorMultiplier = 1.0f / kHdrColorRange;
   static constexpr int kVerticesPerQuad = 4;
+
+  /// OPT-IN ATLAS TRACE, off unless VISAGE_TRACE_ATLAS is set in the environment.
+  ///
+  /// An atlas resize reallocates a texture and repacks everything in it, so a diagnostic beside one
+  /// costs nothing that matters — and the gate is a function-local static read after the first call,
+  /// so a build with the variable unset pays one predictable branch on an already-expensive path.
+  /// That is what lets this live in a SHIPPING build rather than in a special one: the venue where a
+  /// rare rendering fault actually appears is somebody's ordinary session, and a fault you have to
+  /// reproduce in a debug build first is a fault you mostly do not catch.
+  ///
+  /// CLOCK_REALTIME, in milliseconds, so the line can be lined up against a screenshot's mtime or a
+  /// capture named with `date +%s%N`. An earlier version used CLOCK_MONOTONIC — which counts from
+  /// boot — and the two differ by five orders of magnitude, so every correlation would have been
+  /// confident nonsense.
+  inline void traceAtlasResize(const char* which, int newWidth) {
+    static const bool enabled = std::getenv("VISAGE_TRACE_ATLAS") != nullptr;
+    if (!enabled) {
+      return;
+    }
+    struct timespec ts {};
+    clock_gettime(CLOCK_REALTIME, &ts);
+    std::fprintf(stderr, "[VISAGE-ATLAS] %s resize -> %d at %lld\n", which, newWidth,
+                 static_cast<long long>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000);
+    std::fflush(stderr);
+  }
   static constexpr int kIndicesPerQuad = 6;
 
   bool preprocessWebGlShader(std::string& result, const std::string& code,

@@ -137,6 +137,10 @@ namespace visage {
       }
 
       atlas_map_.pack();
+      // Traced AFTER the repack, so the width is the one that now applies. Everything above this line
+      // is what makes the event worth tracing at all: the texture handle is destroyed, the map is
+      // repacked, and every glyph's atlas coordinates move below.
+      traceAtlasResize("FONT", atlas_map_.width());
       for (auto& glyph : packed_glyphs_) {
         if (glyph.second.width == 0)
           continue;
