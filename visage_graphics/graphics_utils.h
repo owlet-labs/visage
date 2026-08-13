@@ -234,6 +234,70 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// FEWER QUADS WRITTEN THAN THE BATCH ALLOCATED AND INDEXED, which is the one arrangement that
+  /// puts GARBAGE on the screen rather than something missing.
+  ///
+  /// `initTransientQuadBuffers` generates indices for every quad it allocated. If the writer then
+  /// fills fewer, the tail indices point at vertices nobody wrote this frame — whatever the transient
+  /// arena happens to hold, reinterpreted as positions. That draws stray triangles at arbitrary
+  /// coordinates and, because consecutive stale vertices differ progressively, sheared streaks of
+  /// whatever was there before.
+  ///
+  /// visage asserts this invariant in three places and every one of them is compiled out under
+  /// NDEBUG, so a release build has been unable to say it. That is why this reports rather than
+  /// asserts: the frames where it would matter are somebody's session, not a debug run.
+  ///
+  /// THE CALLER IS EXPECTED TO ZERO THE TAIL after calling this. A zeroed vertex has no position and
+  /// no dimension, so its triangles have no area and draw nothing — which turns garbage geometry into
+  /// missing geometry. Missing is a bug; garbage is a bug that looks like hardware failure.
+  inline void traceBatchShort(std::string_view which, int written, int allocated) {
+    static constexpr int kMaxShortReports = 8;
+    static std::atomic<int> reports { 0 };
+    const int seen = reports.load(std::memory_order_relaxed);
+    if (seen >= kMaxShortReports) {
+      return;
+    }
+
+    reports.store(seen + 1, std::memory_order_relaxed);
+    const bool last = seen + 1 == kMaxShortReports;
+    std::fprintf(stderr, "[VISAGE-BATCH] SHORT %.*s wrote %d of %d quads - tail zeroed%s\n",
+                 static_cast<int>(which.size()), which.data(), written, allocated,
+                 last ? " (further reports suppressed)" : "");
+    std::fflush(stderr);
+  }
+
+  /// THE WALK STILL HAD PIECES WHEN THE COUNT WAS SATISFIED — the other way `numShapes` and
+  /// `fillQuadChunk` can disagree, and the one a resume bug takes.
+  ///
+  /// The two share a predicate precisely so they cannot differ, and a chunked batch is the only
+  /// place that relies on it: the count decides how many runs to make, and the cursor decides which
+  /// pieces go in them. A cursor that loses its place at a run boundary — resuming a shape at its
+  /// first damage rectangle rather than the rectangle it stopped on — writes one piece twice and
+  /// then runs out of room for the last one, while EVERY RUN STILL WRITES EXACTLY THE CHUNK IT WAS
+  /// ASKED FOR. So `traceBatchShort` cannot see it and neither can the pixels, in a retained-mode
+  /// UI where the dropped piece's rectangle keeps last frame's ink.
+  ///
+  /// What gives it away is the cursor: after the final run the walk must be finished. This says so
+  /// when it is not, and reports in release for the same reason the drop does — the frames where it
+  /// would matter are somebody's session.
+  inline void traceBatchUnwalked(std::string_view which, int counted) {
+    static constexpr int kMaxUnwalkedReports = 8;
+    static std::atomic<int> reports { 0 };
+    const int seen = reports.load(std::memory_order_relaxed);
+    if (seen >= kMaxUnwalkedReports) {
+      return;
+    }
+
+    reports.store(seen + 1, std::memory_order_relaxed);
+    const bool last = seen + 1 == kMaxUnwalkedReports;
+    std::fprintf(stderr,
+                 "[VISAGE-BATCH] UNWALKED %.*s counted %d quads, walk not finished - pieces "
+                 "dropped%s\n",
+                 static_cast<int>(which.size()), which.data(), counted,
+                 last ? " (further reports suppressed)" : "");
+    std::fflush(stderr);
+  }
+
   /// A WHOLE BATCH GOING MISSING, which is the failure that actually fires — and until now the one
   /// nothing anywhere reported.
   ///

@@ -27,6 +27,7 @@
 #include "visage_utils/space.h"
 
 #include <algorithm>
+#include <cstring>
 #include <numeric>
 
 namespace visage {
@@ -153,6 +154,12 @@ namespace visage {
     }
 
     VISAGE_ASSERT(vertex_index == results.num_shapes * kVerticesPerQuad);
+    const int allocated = results.num_shapes * kVerticesPerQuad;
+    if (vertex_index < allocated) {
+      traceBatchShort(kBatchName, vertex_index / kVerticesPerQuad, results.num_shapes);
+      std::memset(results.vertices + vertex_index, 0,
+                  static_cast<size_t>(allocated - vertex_index) * sizeof(typename T::Vertex));
+    }
     return results;
   }
 
@@ -174,7 +181,14 @@ namespace visage {
   int fillQuadChunk(const BatchVector<T>& batches, QuadCursor& cursor, typename T::Vertex* vertices,
                     int max_quads, bool* radial_gradient) {
     int written = 0;
-    for (; cursor.batch < batches.size(); ++cursor.batch, cursor.shape = 0) {
+    // BOTH INNER POSITIONS RESET when the batch advances. The shape loop's own increment already
+    // clears the rect on every ordinary exit, so today the second reset never changes an outcome —
+    // but "today" rests on the shape loop always being left through its increment, which is not a
+    // property this loop can see. A cursor is only correct if every field means what it says at
+    // every place it is read, and a stale rect here would skip the first damage rectangle of the
+    // next batch's first shape: one piece of one shape, missing, in the failure class that hides
+    // behind retained pixels.
+    for (; cursor.batch < batches.size(); ++cursor.batch, cursor.shape = 0, cursor.rect = 0) {
       const auto& batch = batches[cursor.batch];
       for (; cursor.shape < batch.shapes->size(); ++cursor.shape, cursor.rect = 0) {
         const T& shape = (*batch.shapes)[cursor.shape];
@@ -238,11 +252,31 @@ namespace visage {
       bool radial_gradient = false;
       const int written = fillQuadChunk(batches, cursor, vertices, chunk, &radial_gradient);
       VISAGE_ASSERT(written == chunk);
-      done += written;
+      if (written < chunk) {
+        // INDEXED BUT NEVER WRITTEN is the one shape of failure that draws garbage rather than
+        // nothing: the tail indices point at whatever the transient arena still held. Zeroing gives
+        // those quads no position and no dimension, so they cover no pixels.
+        traceBatchShort(kBatchName, written, chunk);
+        std::memset(vertices + written * kVerticesPerQuad, 0,
+                    static_cast<size_t>(chunk - written) * kVerticesPerQuad *
+                        sizeof(typename T::Vertex));
+      }
+
+      // ADVANCE BY THE CHUNK, not by what was written. The walk is finished either way — a short
+      // write means the count disagreed with the writer, and repeating the same chunk would spin
+      // forever on a cursor that has nothing left to give.
+      done += chunk;
 
       prepare();
       setBlendMode(state);
       submitShapes(layer, T::vertexShader(), T::fragmentShader(), radial_gradient, submit_pass);
+    }
+
+    // AND THE WALK MUST BE FINISHED. The count above decided how many runs to make; the cursor
+    // decided what went in them. If pieces remain after the last run, the two disagreed — and the
+    // remainder was never drawn. See traceBatchUnwalked for why nothing else here can see it.
+    if (cursor.batch < batches.size()) {
+      traceBatchUnwalked(kBatchName, total);
     }
   }
 

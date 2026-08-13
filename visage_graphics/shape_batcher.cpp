@@ -392,6 +392,13 @@ namespace visage {
     }
 
     VISAGE_ASSERT(vertex_index == total_length * kVerticesPerQuad);
+    if (vertex_index < total_length * kVerticesPerQuad) {
+      // Same invariant as the shape batches, same consequence, same mitigation — see traceBatchShort.
+      traceBatchShort("TextBlock", vertex_index / kVerticesPerQuad, total_length);
+      std::memset(vertices + vertex_index, 0,
+                  static_cast<size_t>(total_length * kVerticesPerQuad - vertex_index) *
+                      sizeof(TextureVertex));
+    }
 
     setUniform<Uniforms::kAtlasScale>(1.0f / font.atlasWidth(), 1.0f / font.atlasHeight());
     setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
