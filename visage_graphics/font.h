@@ -170,6 +170,17 @@ namespace visage {
         instance()->removeStaleFonts();
     }
 
+    /// Perform any repack a glyph asked for while it was being packed.
+    ///
+    /// MUST BE CALLED WHERE NOTHING IS BATCHED — the top of a frame, before anything is submitted.
+    /// That is the point of deferring at all: a repack destroys the atlas texture and moves every
+    /// glyph, and doing it in the middle of a submit leaves quads already written against the old
+    /// packing. Canvas::submit calls this first thing, before it checks whether the repack happened.
+    ///
+    /// Returns whether anything repacked, so a caller with its own retained state can react without
+    /// consulting fontAtlasRepacks() as well.
+    static bool repackDeferredFonts();
+
   private:
     struct TypeFaceData {
       TypeFaceData(const unsigned char* data, int data_size) : data(data), data_size(data_size) { }
