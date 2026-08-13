@@ -470,6 +470,35 @@ namespace visage {
       image(image_file.data, image_file.size, x, y, width, height);
     }
 
+    /// DRAW A PIXEL BUFFER YOU ALREADY HAVE, with no encode and no decode.
+    ///
+    /// `Canvas::image` takes ENCODED bytes and parses them with bimg; the atlas has always been
+    /// able to take raw pixels — `ImageAtlas::addData` sets `Image::raw` and the upload goes
+    /// straight to the texture — and there was simply no way to reach it from a draw. This is that
+    /// way.
+    ///
+    /// `format` says what the caller's bytes mean. The atlas is one RGBA8 texture shared by every
+    /// image, so this does not change any texture's format: anything that is not the atlas's own
+    /// order is converted during upload. A caller whose pixels are `visage::Color`-shaped uint32s
+    /// (0xAARRGGBB) wants BGRA8, and getting it wrong exchanges red and blue.
+    ///
+    /// THE BUFFER IS THE IDENTITY. The atlas keys an image on its data POINTER and size, so a
+    /// caller with contents that change should overwrite ONE buffer in place and pass the same
+    /// pointer every time — a fresh allocation per update is a fresh atlas entry per update. Raw
+    /// images are re-uploaded on every draw for exactly that reason: the pointer cannot tell the
+    /// atlas that the pixels behind it moved.
+    ///
+    /// Sampling is the atlas's, which is bilinear. There is no per-image sampler while the atlas is
+    /// one shared texture — a caller who needs nearest-neighbour needs that decided for the atlas.
+    template<typename T1, typename T2, typename T3, typename T4>
+    void imageRaw(const unsigned char* data, int image_width, int image_height, ImageFormat format,
+                  const T1& x, const T2& y, const T3& width, const T4& height) {
+      Image raw(data, image_width * image_height * 4, image_width, image_height);
+      raw.raw = true;
+      raw.format = format;
+      addImage(raw, pixels(x), pixels(y), pixels(width), pixels(height));
+    }
+
     template<typename T1, typename T2, typename T3, typename T4>
     void shader(Shader* shader, const T1& x, const T2& y, const T3& width, const T4& height) {
       addShape(ShaderWrapper(state_.clamp, state_.brush, state_.x + pixels(x), state_.y + pixels(y),
@@ -796,6 +825,11 @@ namespace visage {
     void addImage(const Image& image, float x, float y) {
       addShape(ImageWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, image.width,
                             image.height, image, imageAtlas()));
+    }
+
+    void addImage(const Image& image, float x, float y, float width, float height) {
+      addShape(ImageWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height,
+                            image, imageAtlas()));
     }
 
     void addGraphLine(const GraphData& data, float x, float y, float width, float height, float thickness) {

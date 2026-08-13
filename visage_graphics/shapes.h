@@ -457,7 +457,12 @@ namespace visage {
     ImageWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                  float height, const Image& image, ImageAtlas* image_atlas) :
         Shape(image_atlas, clamp, brush, x, y, width, height),
-        packed_image(image_atlas->addImage(image)), image_atlas(image_atlas) {
+        // FORCED FOR RAW IMAGES, and that is requirement one of the whole entry point. Identity is
+        // the data POINTER plus its size, so a caller that overwrites one buffer in place — which
+        // is what it must do, or every rebuild leaks an atlas entry — hands over an image the atlas
+        // considers unchanged. Without this the first upload would be the only one and the picture
+        // would freeze at whatever it was when it was first drawn.
+        packed_image(image_atlas->addImage(image, image.raw)), image_atlas(image_atlas) {
       if (width == 0.0f) {
         this->width = packed_image.w();
         this->height = packed_image.h();

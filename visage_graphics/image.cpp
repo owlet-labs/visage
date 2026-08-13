@@ -108,8 +108,15 @@ namespace visage {
       updateImage(packed_image_rect.get());
       images_[image] = std::move(packed_image_rect);
     }
-    else if (force_update)
+    else if (force_update) {
+      // THE FORMAT COMES FROM THIS CALL, not from whenever the buffer was first seen. Identity is
+      // the data pointer and its size, so a caller passing a different byte order for the same
+      // buffer would otherwise be silently ignored and get the first call's colours forever — wrong
+      // in a way that looks like a bug in their own colour mapping. A buffer should not change its
+      // mind about its format, but "should not" is not a reason to answer the wrong question.
+      images_[image]->image.format = image.format;
       updateImage(images_[image].get());
+    }
 
     stale_images_.erase(image);
 
@@ -121,9 +128,11 @@ namespace visage {
     return PackedImage(reference);
   }
 
-  ImageAtlas::PackedImage ImageAtlas::addData(const unsigned char* data, int width, int height) {
+  ImageAtlas::PackedImage ImageAtlas::addData(const unsigned char* data, int width, int height,
+                                              ImageFormat format) {
     Image image(data, width * height * 4, width, height);
     image.raw = true;
+    image.format = format;
     return addImage(image, true);
   }
 
@@ -156,7 +165,30 @@ namespace visage {
 
     PackedRect packed_rect = atlas_map_.rectForId(image);
     if (image->image.raw) {
-      texture_->updateTexture(image->image.data, packed_rect.x, packed_rect.y, packed_rect.w,
+      if (image->image.format == ImageFormat::RGBA8) {
+        texture_->updateTexture(image->image.data, packed_rect.x, packed_rect.y, packed_rect.w,
+                                packed_rect.h);
+        return;
+      }
+
+      // CONVERTED HERE RATHER THAN ASKED OF BGFX, because the atlas is one RGBA8 texture shared by
+      // every image: no single image may choose its format, and `updateTexture2D` does not swizzle.
+      // So the caller says what its bytes mean and this is where they are made to mean it.
+      //
+      // A whole-buffer copy per upload. For the case this exists for — a 128x128 map rebuilt when
+      // its contents change — that is 64 KB of byte shuffling against a rebuild that costs tens of
+      // milliseconds, and it replaces one quad per texel.
+      const int pixels = packed_rect.w * packed_rect.h;
+      std::vector<unsigned char> swizzled(static_cast<size_t>(pixels) * 4);
+      const unsigned char* source = image->image.data;
+      for (int i = 0; i < pixels; ++i) {
+        const int at = i * 4;
+        swizzled[at + 0] = source[at + 2];
+        swizzled[at + 1] = source[at + 1];
+        swizzled[at + 2] = source[at + 0];
+        swizzled[at + 3] = source[at + 3];
+      }
+      texture_->updateTexture(swizzled.data(), packed_rect.x, packed_rect.y, packed_rect.w,
                               packed_rect.h);
       return;
     }

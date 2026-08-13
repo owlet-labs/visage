@@ -27,6 +27,24 @@
 #include <utility>
 
 namespace visage {
+  /// The byte order of a raw pixel buffer, because visage already contains two conventions and a
+  /// caller cannot tell which one it is handing over.
+  ///
+  /// The image atlas is a single `RGBA8` texture shared by every image, so this is NOT a request
+  /// for a differently-formatted texture — bgfx cannot swizzle on upload, and the atlas format is
+  /// not any one image's to choose. It says what the CALLER's bytes mean, and anything that is not
+  /// the atlas's own order is converted as it is uploaded.
+  ///
+  /// BGRA8 is what a `uint32` written as 0xAARRGGBB contains on a little-endian machine, which is
+  /// the spelling `visage::Color` uses and the one the font atlas allocates. So a caller building
+  /// pixels out of Color-shaped integers wants BGRA8 here, and passing RGBA8 by mistake gives a
+  /// picture that is correct in shape with red and blue exchanged — a fault that looks like a
+  /// colour-mapping bug in the caller's own code and gets hunted there first.
+  enum class ImageFormat {
+    RGBA8,
+    BGRA8,
+  };
+
   struct Image {
     Image() = default;
     Image(const unsigned char* data, int data_size, int width = 0, int height = 0) :
@@ -37,6 +55,10 @@ namespace visage {
     int width = 0;
     int height = 0;
     bool raw = false;
+
+    /// How to read `data`. Deliberately NOT part of identity below: it describes how the same bytes
+    /// are interpreted, not which bytes they are, and one buffer does not change its mind.
+    ImageFormat format = ImageFormat::RGBA8;
 
     bool operator==(const Image& other) const {
       return data == other.data && data_size == other.data_size && width == other.width &&
@@ -230,7 +252,8 @@ namespace visage {
     virtual ~ImageAtlas();
 
     PackedImage addImage(const Image& image, bool force_update = false);
-    PackedImage addData(const unsigned char* data, int width, int height = 1);
+    PackedImage addData(const unsigned char* data, int width, int height = 1,
+                        ImageFormat format = ImageFormat::RGBA8);
     void clearStaleImages() {
       for (const auto& stale : stale_images_) {
         images_.erase(stale.first);
