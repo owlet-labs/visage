@@ -101,18 +101,38 @@ namespace visage {
   /// `initTransientQuadBuffers` writes its indices into a `uint16_t` buffer, quad `i` addressing
   /// vertices `4i .. 4i+3`. So the highest quad that can be addressed is index 16383, holding
   /// vertices 65532..65535 — and one more than that wraps. Quad 16384 asks for 65536..65539,
-  /// which truncate to 0..3, and it draws over the FIRST quad's geometry. Silently: no cap, no
-  /// error and no assert anywhere on that path. The frame comes out wrong wherever those shapes
-  /// were, and nothing says why.
+  /// which truncate to 0..3. Silently: no cap, no error and no assert anywhere on that path.
+  ///
+  /// WHAT IT WOULD ACTUALLY LOOK LIKE, since assuming worse cost real time. Both buffers ARE
+  /// allocated at the full requested size, so nothing is written out of bounds — only the index
+  /// VALUE wraps, and every vertex a wrapped index points at was written earlier in the same pass.
+  /// The tail of the batch would redraw the HEAD: duplicate geometry and missing tail shapes, not
+  /// garbage triangles. If you are chasing stray geometry, it is not this.
+  ///
+  /// AND IT IS NOT REACHABLE ON A DEFAULT BUILD, which is the more useful fact. The transient
+  /// vertex arena runs out first — see traceBatchDropped below — at around 14000 quads for a
+  /// 112-byte ShapeVertex. Raising the arena is what would make this ceiling matter.
   ///
   /// Mind which number is which, because they are one apart and either confusion is a real bug:
   /// 16383 is the highest quad INDEX, 16384 is the highest quad COUNT that fits.
   static constexpr int kMaxQuadsPerBatch = 65536 / kVerticesPerQuad;
 
-  /// Where a batch stops being comfortable. Nothing is wrong at 15000 — it is the distance that
-  /// matters, since a count that moves with what is on screen can cross the ceiling between one
-  /// frame and the next, and the frame BEFORE the corrupt one is the one worth seeing.
-  static constexpr int kQuadCountWarn = 15000;
+  /// Where a batch stops being comfortable, as a percentage of whichever ceiling will really bite.
+  ///
+  /// A FRACTION RATHER THAN A COUNT, and that is not tidiness. The first version warned at a fixed
+  /// 15000, which on a default build is ABOVE the transient arena's real capacity of about
+  /// 14000 quads — so the warning could never fire before the batch was already dead. A threshold
+  /// that only triggers after the failure it is warning about is worse than none, because it reads
+  /// as evidence that nothing was approaching.
+  static constexpr int kQuadWarnPercent = 85;
+
+  /// The trace's gate, hoisted so a caller can skip work it only needs when tracing — asking bgfx
+  /// how much transient memory is left is cheap, but not so cheap it should happen per batch per
+  /// frame in a shipping build that is not being traced.
+  inline bool batchTraceEnabled() {
+    static const bool enabled = std::getenv("VISAGE_TRACE_BATCH") != nullptr;
+    return enabled;
+  }
 
   /// OPT-IN BATCH TRACE, sibling of the atlas trace above and gated the same way: off unless
   /// VISAGE_TRACE_BATCH is set, read once into a function-local static, so a build with the
@@ -132,8 +152,12 @@ namespace visage {
   /// AND THE REPORT IS BOUNDED. An overflowing batch is normally a per-frame condition, so an
   /// ungated report would be sixty lines a second into somebody's log. After a handful it says so
   /// and goes quiet. The opt-in half is not bounded: whoever turned it on wants all of them.
-  inline void traceBatchQuads(std::string_view which, int num_quads) {
-    static const bool enabled = std::getenv("VISAGE_TRACE_BATCH") != nullptr;
+  ///
+  /// `available_quads` is what the transient arena had left when this batch asked, or -1 when the
+  /// caller did not look — which it only does while tracing. The warning is measured against
+  /// whichever of the two ceilings is lower, because that is the one the batch will meet.
+  inline void traceBatchQuads(std::string_view which, int num_quads, int available_quads) {
+    const bool enabled = batchTraceEnabled();
 
     if (num_quads > kMaxQuadsPerBatch) {
       static constexpr int kMaxOverflowReports = 8;
@@ -154,11 +178,52 @@ namespace visage {
       return;
     }
 
-    if (enabled && num_quads > kQuadCountWarn) {
-      std::fprintf(stderr, "[VISAGE-BATCH] warn %.*s %d quads, ceiling %d\n",
-                   static_cast<int>(which.size()), which.data(), num_quads, kMaxQuadsPerBatch);
+    if (!enabled) {
+      return;
+    }
+
+    const bool arena_is_lower = available_quads >= 0 && available_quads < kMaxQuadsPerBatch;
+    const int ceiling = arena_is_lower ? available_quads : kMaxQuadsPerBatch;
+    if (num_quads > ceiling * kQuadWarnPercent / 100) {
+      std::fprintf(stderr, "[VISAGE-BATCH] warn %.*s %d quads, ceiling %d (index %d, arena %d)\n",
+                   static_cast<int>(which.size()), which.data(), num_quads, ceiling,
+                   kMaxQuadsPerBatch, available_quads);
       std::fflush(stderr);
     }
+  }
+
+  /// A WHOLE BATCH GOING MISSING, which is the failure that actually fires — and until now the one
+  /// nothing anywhere reported.
+  ///
+  /// The transient vertex arena is a fixed per-frame pool (bgfx's default is 6 MB, and visage never
+  /// sets `Init::limits`). When `allocTransientBuffers` cannot serve a batch it returns false, and
+  /// `setupQuads` then skips the batch ENTIRELY — every shape of that type, across every region in
+  /// the layer, is simply not drawn that frame. Over a frame buffer that is not cleared, and chrome
+  /// that does not repaint, what stays on screen is whatever was underneath.
+  ///
+  /// MEASURED, because the arithmetic is worth having in front of whoever reads this: a ShapeVertex
+  /// is 112 bytes, so the 6 MB pool holds 56173 vertices — 14043 quads, for the WHOLE FRAME, shared
+  /// across every batch in it. That is BELOW the 16384 index ceiling, which is why the index wrap
+  /// above has never actually been reachable for these shapes. Two surfaces that each sit inside
+  /// their own budget can still drop each other's batch.
+  ///
+  /// NOT AN ASSERT, deliberately, and this is the difference from the wrap. Running out of a
+  /// runtime resource is not a programming error, and trapping somebody's DAW for it would be
+  /// wrong. It prints, in release, bounded — and then the frame is wrong and at least it said so.
+  inline void traceBatchDropped(std::string_view which, int num_quads, int available_quads) {
+    static constexpr int kMaxDroppedReports = 8;
+    static std::atomic<int> reports { 0 };
+    const int seen = reports.load(std::memory_order_relaxed);
+    if (seen >= kMaxDroppedReports) {
+      return;
+    }
+
+    reports.store(seen + 1, std::memory_order_relaxed);
+    const bool last = seen + 1 == kMaxDroppedReports;
+    std::fprintf(stderr, "[VISAGE-BATCH] DROPPED %.*s %d quads, arena has %d - nothing drawn%s\n",
+                 static_cast<int>(which.size()), which.data(), num_quads, available_quads,
+                 last ? " (further reports suppressed)" : "");
+    std::fflush(stderr);
   }
 
   bool preprocessWebGlShader(std::string& result, const std::string& code,

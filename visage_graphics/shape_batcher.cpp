@@ -124,13 +124,31 @@ namespace visage {
                                 bgfx::TransientIndexBuffer* index_buffer, std::string_view which) {
     // BEFORE THE ALLOCATION, not after, and the ordering is the point. The COUNT is what
     // overflows — the loop below writes `4i + 3` into a uint16 — so it wants reporting whether or
-    // not there happened to be transient memory for it. A batch that fails to allocate and a batch
-    // that wraps both leave the frame wrong, and only one of the two says anything today.
-    traceBatchQuads(which, num_quads);
+    // not there happened to be transient memory for it.
+    //
+    // The arena's remaining capacity goes with it, since the ceiling that bites is the LOWER of the
+    // two, and on a default build that is the arena. Only looked up while tracing: it is a cheap
+    // call, but it would otherwise run for every batch of every frame in a shipping build.
+    traceBatchQuads(which, num_quads,
+                    batchTraceEnabled() ?
+                        static_cast<int>(bgfx::getAvailTransientVertexBuffer(1u << 24, layout)) /
+                            kVerticesPerQuad :
+                        -1);
 
     int num_vertices = num_quads * kVerticesPerQuad;
     int num_indices = num_quads * kIndicesPerQuad;
     if (!bgfx::allocTransientBuffers(vertex_buffer, layout, num_vertices, index_buffer, num_indices)) {
+      // THE FAILURE THAT ACTUALLY FIRES. With a 112-byte ShapeVertex the 6 MB arena holds 14043
+      // quads for the whole frame — below the 16384 index ceiling, so THIS is what a too-large
+      // batch hits, and it drops the batch entirely. Reported on its own footing because the line
+      // below is compiled out under NDEBUG, which is exactly where it was needed.
+      //
+      // The capacity is ASKED FOR rather than assumed: the arena is per-frame and shared, so what
+      // matters is what was left when this batch asked, not what the pool holds when empty.
+      // `getAvailTransientVertexBuffer` returns the lesser of the request and the remainder, so it
+      // is handed a number no frame will reach.
+      const uint32_t available = bgfx::getAvailTransientVertexBuffer(1u << 24, layout);
+      traceBatchDropped(which, num_quads, static_cast<int>(available) / kVerticesPerQuad);
       VISAGE_LOG("Not enough transient buffer memory for %d quads", num_quads);
       return false;
     }
