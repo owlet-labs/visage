@@ -29,6 +29,7 @@
 
 #include "visage_utils/defines.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <map>
@@ -567,6 +568,63 @@ namespace visage {
                  "[VISAGE-TEX] %s %s %dx%d -> %dx%d handle %d invalid %d at %lld\n",
                  intermediate ? "intermediate" : "window", event, fromWidth, fromHeight, toWidth,
                  toHeight, handleIndex, anyInvalid ? 1 : 0, traceMilliseconds());
+    std::fflush(stderr);
+  }
+
+  /// HOW LONG A FRAME'S CPU WORK TOOK, which is the number that decides whether repainting
+  /// everything every frame is a permanent price or a stopgap.
+  ///
+  /// A MONOTONIC CLOCK, unlike every other trace in this file, and the difference is not pedantry.
+  /// The others report an INSTANT to be lined up against a screenshot's mtime, which needs
+  /// CLOCK_REALTIME. This reports a DURATION, and CLOCK_REALTIME can step sideways when the system
+  /// clock is adjusted — producing a negative frame or a jump of hours in the middle of a
+  /// distribution. Durations get CLOCK_MONOTONIC; correlations get CLOCK_REALTIME.
+  ///
+  /// MEASURED BEFORE bgfx::frame(), DELIBERATELY. This platform resets with BGFX_RESET_VSYNC, so
+  /// bgfx::frame() blocks until the display is ready — including it would swamp every measurement
+  /// with vsync wait and report roughly 16ms regardless of how much work was done. What is wanted is
+  /// the CPU-side cost of batching and submitting, which is precisely the part full redraw inflates.
+  /// A number that includes the wait would say the fix is free, which is the wrong answer arrived at
+  /// by measuring the wrong thing.
+  ///
+  /// Per-frame lines so a caller can build a distribution rather than trust a mean, plus a rollup
+  /// every 600 frames so a human reading the log directly gets the shape without post-processing.
+  /// Opt-in through VISAGE_TRACE_FRAMETIME.
+  inline bool frameTimeTraceEnabled() {
+    static const bool enabled = std::getenv("VISAGE_TRACE_FRAMETIME") != nullptr;
+    return enabled;
+  }
+
+  inline long long monotonicMicroseconds() {
+    struct timespec ts {};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<long long>(ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
+  }
+
+  inline void traceFrameTime(long long microseconds) {
+    if (!frameTimeTraceEnabled()) {
+      return;
+    }
+
+    static constexpr int kRollupEvery = 600;
+    static std::vector<long long> window;
+    window.push_back(microseconds);
+
+    std::fprintf(stderr, "[VISAGE-FRAME] submit %lld us\n", microseconds);
+
+    if (window.size() >= kRollupEvery) {
+      std::vector<long long> sorted = window;
+      std::sort(sorted.begin(), sorted.end());
+      long long total = 0;
+      for (long long value : sorted) {
+        total += value;
+      }
+      std::fprintf(stderr,
+                   "[VISAGE-FRAME] rollup %zu frames mean %lld p50 %lld p90 %lld max %lld us\n",
+                   sorted.size(), total / static_cast<long long>(sorted.size()),
+                   sorted[sorted.size() / 2], sorted[sorted.size() * 9 / 10], sorted.back());
+      window.clear();
+    }
     std::fflush(stderr);
   }
 

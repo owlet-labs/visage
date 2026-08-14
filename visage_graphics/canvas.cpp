@@ -87,6 +87,9 @@ namespace visage {
   }
 
   int Canvas::submit(int submit_pass) {
+    // Captured at entry and stopped before bgfx::frame() below, so the number is this frame's CPU
+    // work rather than its wait for the display. See traceFrameTime.
+    const long long frame_start_us = frameTimeTraceEnabled() ? monotonicMicroseconds() : 0;
     // A FRAME BEGINS HERE, so the quad census starts from zero here. Read `batchQuadsThisFrame`
     // after submit returns and it is what this frame handed the batcher across every batch — which
     // is the quantity a transient arena has to be sized against.
@@ -179,6 +182,8 @@ namespace visage {
     if (submission > submit_pass) {
       composite_layer_.invalidate();
       submission = composite_layer_.submit(submission, 0);
+      // BEFORE the present, which is where the vsync wait lives.
+      traceFrameTime(monotonicMicroseconds() - frame_start_us);
       bgfx::frame();
       if (render_frame_ == 0)
         bgfx::frame();
