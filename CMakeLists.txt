@@ -22,6 +22,15 @@ option(VISAGE_ENABLE_BACKGROUND_GRAPHICS_THREAD "Offloads graphics rendering to 
 option(VISAGE_ENABLE_GRAPHICS_DEBUG_LOGGING "Shows graphics debug log in console in debug mode" OFF)
 option(VISAGE_ADDRESS_SANITIZER "Enable AddressSanitizer" OFF)
 
+# THE DIAGNOSTIC CONFIGURATION — the atlas and batch traces compiled ON rather than waiting on an
+# environment variable. See `diagnosticBuild()` in visage_graphics/graphics_utils.h for why a fault
+# that only reproduces under somebody's hands needs a build that cannot be launched uninstrumented.
+#
+# Deliberately NOT prefixed VISAGE_: it is named for the downstream project that asks for it, so one
+# `-DFEATHERS_DIAGNOSTIC=ON` on a superproject's configure line reaches both this fork and the
+# plugin's own diagnostics through a single cache entry.
+option(FEATHERS_DIAGNOSTIC "Compile the atlas and batch traces in unconditionally" OFF)
+
 if (VISAGE_ADDRESS_SANITIZER)
   if (MSVC)
     add_compile_options(/fsanitize=address /Zi)
@@ -115,6 +124,19 @@ target_link_libraries(visage PRIVATE
 )
 
 set_target_properties(visage PROPERTIES FOLDER "visage")
+
+# BOTH TARGETS, and neither one alone is enough. VisageGraphics is where font.cpp and the batcher are
+# compiled, so it needs the definition to emit the traces at all; but it is linked into `visage`
+# PRIVATELY, so its usage requirements stop there. Consumers — the plugin, and the windowless control
+# tools that include graphics_utils.h directly — take the definition from `visage` instead, and they
+# have to have it: the gates are inline functions, and a consumer compiling a different body for
+# `batchTraceEnabled` than the library did is an ODR violation whose symptom is a trace that is on in
+# one translation unit and off in another.
+if (FEATHERS_DIAGNOSTIC)
+  target_compile_definitions(VisageGraphics PUBLIC FEATHERS_DIAGNOSTIC)
+  target_compile_definitions(visage PUBLIC FEATHERS_DIAGNOSTIC)
+  message(STATUS "VISAGE: FEATHERS_DIAGNOSTIC build - atlas and batch traces compiled in")
+endif ()
 
 if (VISAGE_BUILD_EXAMPLES)
   add_subdirectory(examples)

@@ -266,6 +266,16 @@ namespace visage {
       packed_glyph->atlas_left = rect.x;
       packed_glyph->atlas_top = rect.y;
 
+      // THE ONE PLACE A GLYPH ENTERS THIS ATLAS, which is why the trace sits here rather than at
+      // either caller: `packCharacterGlyph` and `packEmojiGlyph` both end in this, and `packedGlyph`
+      // reaches them only when the character has never been packed. So one line here is one line per
+      // NOVEL character, which is the quantity worth counting — a string redrawn every frame adds
+      // nothing and says nothing.
+      //
+      // Traced after the width is settled, so a line that follows a resize reports the atlas the
+      // glyph actually landed in rather than the one it did not fit.
+      traceGlyphPacked(character, size_, atlas_map_.width());
+
       if (bgfx::isValid(texture_handle_))
         rasterizeGlyph(character, packed_glyph);
     }

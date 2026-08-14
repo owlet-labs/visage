@@ -65,7 +65,51 @@ namespace visage {
   static constexpr float kHdrColorMultiplier = 1.0f / kHdrColorRange;
   static constexpr int kVerticesPerQuad = 4;
 
-  /// OPT-IN ATLAS TRACE, off unless VISAGE_TRACE_ATLAS is set in the environment.
+  /// A BUILD THAT TRACES WITHOUT BEING ASKED, and the reason it is a compile flag rather than one
+  /// more environment variable.
+  ///
+  /// Every trace in this file is opt-in through the environment, which is right for a shipping build
+  /// and wrong for the one instrument that matters when a fault will not reproduce under a harness:
+  /// a build handed to the person whose hands DO reproduce it. An environment variable has to survive
+  /// a launcher, a sandbox and a habit, and any of the three can drop it without saying so — leaving
+  /// a session that looks instrumented, is not, and whose empty log then reads as evidence. Compiled
+  /// in, the trace cannot be forgotten on the command line and cannot be turned off by accident.
+  ///
+  /// OFF BY DEFAULT, so an ordinary build of this tree is byte-for-byte what it was. Only
+  /// `-DFEATHERS_DIAGNOSTIC=ON` at configure time turns it on.
+  constexpr bool diagnosticBuild() {
+#ifdef FEATHERS_DIAGNOSTIC
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  /// CLOCK_REALTIME, in milliseconds, so a line can be lined up against a screenshot's mtime or a
+  /// capture named with `date +%s%N`. An earlier version used CLOCK_MONOTONIC — which counts from
+  /// boot — and the two differ by five orders of magnitude, so every correlation would have been
+  /// confident nonsense.
+  ///
+  /// POSIX ONLY, AND THIS HEADER IS INCLUDED WIDELY. clock_gettime and <ctime>'s CLOCK_REALTIME are
+  /// not available under MSVC, and this fork's CMake carries an MSVC branch — so a Windows build of
+  /// it would fail here rather than at any one call site. The C11 spelling that compiles everywhere
+  /// is `timespec_get(&ts, TIME_UTC)`, which is what this becomes if the traces are ever wanted off
+  /// POSIX. Left as it is deliberately: they have one purpose, on one machine, chasing one bug.
+  inline long long traceMilliseconds() {
+    struct timespec ts {};
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return static_cast<long long>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+  }
+
+  /// The atlas trace's gate, hoisted so the glyph trace below shares it rather than reading the
+  /// environment a second time under a second static.
+  inline bool atlasTraceEnabled() {
+    static const bool enabled = diagnosticBuild() || std::getenv("VISAGE_TRACE_ATLAS") != nullptr;
+    return enabled;
+  }
+
+  /// OPT-IN ATLAS TRACE, off unless VISAGE_TRACE_ATLAS is set in the environment or this is a
+  /// diagnostic build.
   ///
   /// An atlas resize reallocates a texture and repacks everything in it, so a diagnostic beside one
   /// costs nothing that matters — and the gate is a function-local static read after the first call,
@@ -74,24 +118,54 @@ namespace visage {
   /// rare rendering fault actually appears is somebody's ordinary session, and a fault you have to
   /// reproduce in a debug build first is a fault you mostly do not catch.
   ///
-  /// CLOCK_REALTIME, in milliseconds, so the line can be lined up against a screenshot's mtime or a
-  /// capture named with `date +%s%N`. An earlier version used CLOCK_MONOTONIC — which counts from
-  /// boot — and the two differ by five orders of magnitude, so every correlation would have been
-  /// confident nonsense.
+  /// NOT RATE-BOUNDED, unlike the glyph line below, and that asymmetry is the point of the pair. A
+  /// repack is the event that moves already-submitted draws, so every single one has to be readable
+  /// against the moment a screenshot was taken; there are tens of them in a session, not thousands.
   inline void traceAtlasResize(const char* which, int newWidth) {
-    static const bool enabled = std::getenv("VISAGE_TRACE_ATLAS") != nullptr;
-    if (!enabled) {
+    if (!atlasTraceEnabled()) {
       return;
     }
-    // POSIX ONLY, AND THIS HEADER IS INCLUDED WIDELY. clock_gettime and <ctime>'s CLOCK_REALTIME are
-    // not available under MSVC, and this fork's CMake carries an MSVC branch — so a Windows build of
-    // it would fail here rather than at the one call site. The C11 spelling that compiles everywhere
-    // is `timespec_get(&ts, TIME_UTC)`, which is what this becomes if the trace is ever wanted off
-    // POSIX. Left as it is deliberately: it has one purpose, on one machine, chasing one bug.
-    struct timespec ts {};
-    clock_gettime(CLOCK_REALTIME, &ts);
     std::fprintf(stderr, "[VISAGE-ATLAS] %s resize -> %d at %lld\n", which, newWidth,
-                 static_cast<long long>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000);
+                 traceMilliseconds());
+    std::fflush(stderr);
+  }
+
+  /// EVERY GLYPH THE FONT ATLAS LEARNS — the churn a repack line only reports the END of.
+  ///
+  /// A repack is the event that invalidates submitted draws; a glyph ADD is what walks the atlas
+  /// towards one. Having both says whether a photographed fault landed on the frame that repacked or
+  /// on one of the hundreds that merely grew — and it says what was being TYPED at the time, which is
+  /// the differentiator this particular hunt turns on. A readout counting "-3.66" through "-3.71"
+  /// hands the atlas characters it has never packed, once per gesture, and a parameter storm driven
+  /// through the automation road hands it none.
+  ///
+  /// RATE-BOUNDED, and deliberately the other way round from the reports further down. Those are
+  /// bounded because they should never fire at all, so eight is generous. This one fires by design,
+  /// hundreds of times in a first second — so what needs protecting is the LOG rather than the
+  /// reader's attention. The first 200 carry a session's opening in full; every 50th after that
+  /// carries its shape. The ordinal is printed, so a reader can see what was skipped instead of
+  /// inferring it from a gap.
+  inline void traceGlyphPacked(char32_t character, int font_size, int atlas_width) {
+    if (!atlasTraceEnabled()) {
+      return;
+    }
+
+    static constexpr int kUnthinnedReports = 200;
+    static constexpr int kThinnedEvery = 50;
+    static std::atomic<int> packed { 0 };
+    const int ordinal = packed.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (ordinal > kUnthinnedReports && ordinal % kThinnedEvery != 0) {
+      return;
+    }
+
+    // PRINTABLE ASCII GETS ITS CHARACTER AND EVERYTHING ELSE A DOT, with the code point printed
+    // either way. Reading back the string a gesture typed is most of the value, and a char32_t handed
+    // to %c would print something else entirely for anything above the ASCII range; a code point on
+    // its own is correct but has to be decoded by hand for the common case, which is a letter.
+    const bool printable = character >= 0x20 && character < 0x7f;
+    std::fprintf(stderr, "[VISAGE-ATLAS] glyph #%d U+%04X '%c' size %d atlas %d at %lld\n", ordinal,
+                 static_cast<unsigned>(character), printable ? static_cast<char>(character) : '.',
+                 font_size, atlas_width, traceMilliseconds());
     std::fflush(stderr);
   }
   static constexpr int kIndicesPerQuad = 6;
@@ -130,7 +204,7 @@ namespace visage {
   /// how much transient memory is left is cheap, but not so cheap it should happen per batch per
   /// frame in a shipping build that is not being traced.
   inline bool batchTraceEnabled() {
-    static const bool enabled = std::getenv("VISAGE_TRACE_BATCH") != nullptr;
+    static const bool enabled = diagnosticBuild() || std::getenv("VISAGE_TRACE_BATCH") != nullptr;
     return enabled;
   }
 
@@ -160,8 +234,9 @@ namespace visage {
   }
 
   /// OPT-IN BATCH TRACE, sibling of the atlas trace above and gated the same way: off unless
-  /// VISAGE_TRACE_BATCH is set, read once into a function-local static, so a build with the
-  /// variable unset pays one predictable branch on a path that already allocates GPU buffers.
+  /// VISAGE_TRACE_BATCH is set or this is a diagnostic build, read once into a function-local
+  /// static, so a build with neither pays one predictable branch on a path that already allocates
+  /// GPU buffers.
   ///
   /// TWO HALVES, DELIBERATELY DIFFERENT. The warning half is opt-in — a big batch is interesting,
   /// not wrong, and nobody wants that line in an ordinary session. The overflow half is not: by
