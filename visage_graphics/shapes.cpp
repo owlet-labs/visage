@@ -70,10 +70,14 @@ namespace visage {
     // verbose; see traceBlit.
     if (blitTraceEnabled()) {
       const Layer* source = region->layer();
-      traceBlit(source->isIntermediate(), source->width(), source->height(), vertices[0].x,
-                vertices[0].y, vertices[3].x, vertices[3].y,
-                static_cast<int>(vertices[0].texture_x), static_cast<int>(vertices[0].texture_y),
-                static_cast<int>(vertices[3].texture_x), static_cast<int>(vertices[3].texture_y));
+      BlitQuad quad {};
+      for (int i = 0; i < kVerticesPerQuad; ++i) {
+        quad.x[i] = vertices[i].x;
+        quad.y[i] = vertices[i].y;
+        quad.u[i] = vertices[i].texture_x;
+        quad.v[i] = vertices[i].texture_y;
+      }
+      traceBlit(source->isIntermediate(), source->width(), source->height(), quad);
     }
   }
 }

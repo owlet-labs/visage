@@ -572,22 +572,62 @@ namespace visage {
     return enabled;
   }
 
-  inline void traceBlit(bool intermediate, int layerWidth, int layerHeight, float destLeft,
-                        float destTop, float destRight, float destBottom, int srcLeft, int srcTop,
-                        int srcRight, int srcBottom) {
+  /// ALL FOUR VERTICES, not the two corners, and the reason is the geometry of the thing being
+  /// hunted. A quad is drawn as two triangles split on its diagonal — kQuadTriangles is
+  /// {0,1,2, 2,1,3} — so vertex 0 belongs ONLY to the first triangle and vertex 3 ONLY to the
+  /// second, while vertices 1 and 2 are in BOTH. One corrupt vertex therefore poisons either one
+  /// triangle or both, depending on WHICH, and that maps directly onto whether a photographed
+  /// artifact is a single wedge with a diagonal hypotenuse or a whole quad.
+  ///
+  /// An earlier version printed only vertices 0 and 3 — the two corners the rectangle is built from
+  /// — which meant the two vertices that poison BOTH triangles were the two it could not see. This
+  /// checks the quad is still a rectangle: v1 must share v0's top and v3's left, v2 must share v0's
+  /// left and v3's bottom, in position and in texture coordinates alike. Anything else is a vertex
+  /// that no longer agrees with the rectangle it was built from.
+  ///
+  /// AND IT READS THE REAL BUFFER. These vertices are the transient vertex buffer bgfx handed back —
+  /// initQuadVertices returns that memory directly — so this is what was WRITTEN for the GPU, not a
+  /// restatement of intent. It is written at write time, though: corruption after this point and
+  /// before the draw consumes it would still be invisible here.
+  struct BlitQuad {
+    float x[4];
+    float y[4];
+    float u[4];
+    float v[4];
+  };
+
+  inline void traceBlit(bool intermediate, int layerWidth, int layerHeight, const BlitQuad& quad) {
     if (!blitTraceEnabled()) {
       return;
     }
 
-    // NAMED WHEN IT IS ALREADY WRONG, so a reader does not have to check the arithmetic on every one
-    // of thousands of lines. Sampling outside the source layer is the failure this hunt is about.
-    const bool outside = srcLeft < 0 || srcTop < 0 || srcRight > layerWidth || srcBottom > layerHeight;
+    // NAMED WHEN IT IS ALREADY WRONG, so a reader does not check arithmetic on thousands of lines.
+    const bool outside = quad.u[0] < 0 || quad.v[0] < 0 || quad.u[3] > layerWidth ||
+                         quad.v[3] > layerHeight;
+    const bool malformed = quad.y[1] != quad.y[0] || quad.x[2] != quad.x[0] ||
+                           quad.x[1] != quad.x[3] || quad.y[2] != quad.y[3] ||
+                           quad.v[1] != quad.v[0] || quad.u[2] != quad.u[0] ||
+                           quad.u[1] != quad.u[3] || quad.v[2] != quad.v[3];
+
     std::fprintf(stderr,
-                 "[VISAGE-BLIT] %s src (%d,%d)-(%d,%d) of %dx%d -> dest (%g,%g)-(%g,%g)%s at %lld\n",
-                 intermediate ? "intermediate" : "window", srcLeft, srcTop, srcRight, srcBottom,
-                 layerWidth, layerHeight, static_cast<double>(destLeft), static_cast<double>(destTop),
-                 static_cast<double>(destRight), static_cast<double>(destBottom),
-                 outside ? "  OUTSIDE-SOURCE" : "", traceMilliseconds());
+                 "[VISAGE-BLIT] %s src (%g,%g)-(%g,%g) of %dx%d -> dest (%g,%g)-(%g,%g)%s%s at %lld\n",
+                 intermediate ? "intermediate" : "window", static_cast<double>(quad.u[0]),
+                 static_cast<double>(quad.v[0]), static_cast<double>(quad.u[3]),
+                 static_cast<double>(quad.v[3]), layerWidth, layerHeight,
+                 static_cast<double>(quad.x[0]), static_cast<double>(quad.y[0]),
+                 static_cast<double>(quad.x[3]), static_cast<double>(quad.y[3]),
+                 outside ? "  OUTSIDE-SOURCE" : "", malformed ? "  MALFORMED-QUAD" : "",
+                 traceMilliseconds());
+
+    // The whole quad, but only when it has stopped being one — otherwise this is four times the log
+    // for a rectangle whose corners already said everything.
+    if (malformed) {
+      for (int i = 0; i < 4; ++i) {
+        std::fprintf(stderr, "[VISAGE-BLIT]   v%d pos (%g, %g) uv (%g, %g)\n", i,
+                     static_cast<double>(quad.x[i]), static_cast<double>(quad.y[i]),
+                     static_cast<double>(quad.u[i]), static_cast<double>(quad.v[i]));
+      }
+    }
     std::fflush(stderr);
   }
 
