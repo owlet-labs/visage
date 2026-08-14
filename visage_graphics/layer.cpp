@@ -189,6 +189,10 @@ namespace visage {
                                                            kFrameBufferFlags);
     }
 
+    // A FRESH TEXTURE IS UNINITIALISED VRAM. Only the rectangles marked dirty will be drawn into it;
+    // everything else keeps whatever the allocator handed over, permanently.
+    traceLayerTexture("create", intermediate_layer_, width_, height_, width_, height_,
+                      frame_buffer_data_->handle.idx, anyInvalidRects());
     bottom_left_origin_ = bgfx::getCaps()->originBottomLeft;
   }
 
@@ -219,6 +223,11 @@ namespace visage {
 
   void Layer::destroyFrameBuffer() {
     if (bgfx::isValid(frame_buffer_data_->handle)) {
+      // TRACED WITH `invalid`, which is the field that matters: a destroy with nothing marked dirty
+      // leaves a layer that will not redraw itself, because submit early-returns on no invalid rects
+      // and so never reaches checkFrameBuffer. See traceLayerTexture.
+      traceLayerTexture("destroy", intermediate_layer_, width_, height_, width_, height_,
+                        frame_buffer_data_->handle.idx, anyInvalidRects());
       bgfx::destroy(frame_buffer_data_->handle);
       frame_buffer_data_->handle = BGFX_INVALID_HANDLE;
     }

@@ -513,6 +513,39 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// THE LAYER TEXTURE'S OWN LIFE — created, destroyed, resized — because a reallocation is the one
+  /// event that changes a texture's CONTENTS without any draw, any damage, or any packing.
+  ///
+  /// A new bgfx texture is uninitialised VRAM. Under partial damage only subsequently-dirtied
+  /// rectangles are redrawn into it, so everything undamaged keeps whatever the allocator handed
+  /// over — permanently, and with no trace anywhere else in this file. One no-draw, no-damage event
+  /// producing a frozen wedge is exactly the shape being hunted.
+  ///
+  /// THE FIELD TO READ IS `invalid`, and the reason is a real asymmetry in Layer. `setDimensions`
+  /// destroys the frame buffer AND invalidates, which is safe — everything redraws into the new
+  /// texture. But `destroyFrameBuffer` is also called on its own by `setHdr`, and by `pairToWindow`
+  /// and `setWindowlessRender` AFTER a `setDimensions` that EARLY-RETURNS when the dimensions have
+  /// not changed — so the invalidate never runs while the destroy always does. A layer whose texture
+  /// is gone and which has nothing marked dirty will not redraw itself: `Layer::submit` early-returns
+  /// on no invalid rects, so `checkFrameBuffer` never runs, and whatever samples that layer samples a
+  /// handle that is no longer valid.
+  ///
+  /// So a `destroy` line with `invalid 0` is the smoking gun, and a HANDLE that changes between two
+  /// frames is a reallocation whether or not anything else reported one.
+  ///
+  /// On the batch gate rather than its own, because these are a handful of lines per session.
+  inline void traceLayerTexture(const char* event, bool intermediate, int fromWidth, int fromHeight,
+                                int toWidth, int toHeight, int handleIndex, bool anyInvalid) {
+    if (!batchTraceEnabled()) {
+      return;
+    }
+    std::fprintf(stderr,
+                 "[VISAGE-TEX] %s %s %dx%d -> %dx%d handle %d invalid %d at %lld\n",
+                 intermediate ? "intermediate" : "window", event, fromWidth, fromHeight, toWidth,
+                 toHeight, handleIndex, anyInvalid ? 1 : 0, traceMilliseconds());
+    std::fflush(stderr);
+  }
+
   /// EVERY COMPOSITE OF A LAYER INTO ANOTHER — the one path that puts pixels on screen WITHOUT being
   /// a shape in the damage-clamped batcher walk, and therefore the one path every tripwire here is
   /// blind to.

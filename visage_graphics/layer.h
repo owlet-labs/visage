@@ -94,6 +94,11 @@ namespace visage {
     void clearInvalidRects() { invalid_rects_.clear(); }
 
     void setDimensions(int width, int height) {
+      // Traced BEFORE the early return, because a call that changes nothing is exactly the case that
+      // matters: pairToWindow and setWindowlessRender both call destroyFrameBuffer AFTER this, so
+      // when the dimensions are unchanged the destroy happens while the invalidate below does not.
+      traceLayerTexture("resize", intermediate_layer_, width_, height_, width, height, -1,
+                        anyInvalidRects());
       if (width == width_ && height == height_)
         return;
 
