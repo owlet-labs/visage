@@ -38,7 +38,11 @@ namespace visage {
     ~Layer();
 
     void checkFrameBuffer();
-    void destroyFrameBuffer();
+    /// `caller` names the route, because WHICH road reached a destroy is the question a log has
+    /// to answer: the same defect is reachable from a resize, an HDR change, a reparent and a
+    /// teardown, and only the caller distinguishes a survivable startup destroy from a fatal
+    /// steady-state one.
+    void destroyFrameBuffer(const char* caller = "?");
 
     bgfx::FrameBufferHandle& frameBuffer() const;
     int frameBufferFormat() const;
@@ -104,7 +108,7 @@ namespace visage {
 
       width_ = width;
       height_ = height;
-      destroyFrameBuffer();
+      destroyFrameBuffer("setDimensions");
       invalidate();
     }
     int width() const { return width_; }
@@ -116,7 +120,7 @@ namespace visage {
 
     void setHdr(bool hdr) {
       hdr_ = hdr;
-      destroyFrameBuffer();
+      destroyFrameBuffer("setHdr");
     }
     bool hdr() const { return hdr_; }
 
@@ -125,13 +129,13 @@ namespace visage {
     void pairToWindow(void* window_handle, int width, int height) {
       window_handle_ = window_handle;
       setDimensions(width, height);
-      destroyFrameBuffer();
+      destroyFrameBuffer("pairToWindow");
     }
 
     void setWindowlessRender(int width, int height) {
       headless_render_ = true;
       setDimensions(width, height);
-      destroyFrameBuffer();
+      destroyFrameBuffer("setWindowlessRender");
     }
     bool isHeadlessRender() const { return headless_render_; }
 

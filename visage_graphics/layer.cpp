@@ -26,6 +26,7 @@
 #include "renderer.h"
 
 #include <bgfx/bgfx.h>
+#include <cstdio>
 
 namespace visage {
   struct FrameBufferData {
@@ -158,7 +159,7 @@ namespace visage {
   }
 
   Layer::~Layer() {
-    destroyFrameBuffer();
+    destroyFrameBuffer("~Layer");
   }
 
   void Layer::checkFrameBuffer() {
@@ -202,7 +203,7 @@ namespace visage {
     // in addToWindow — and submitting a frame before that crashes outright.
     const bool had_frame_buffer = frame_buffer_data_ && bgfx::isValid(frame_buffer_data_->handle);
     window_handle_ = nullptr;
-    destroyFrameBuffer();
+    destroyFrameBuffer("removeFromWindow");
     if (!had_frame_buffer)
       return;
 
@@ -221,12 +222,16 @@ namespace visage {
     bgfx::frame();
   }
 
-  void Layer::destroyFrameBuffer() {
+  void Layer::destroyFrameBuffer(const char* caller) {
     if (bgfx::isValid(frame_buffer_data_->handle)) {
       // TRACED WITH `invalid`, which is the field that matters: a destroy with nothing marked dirty
       // leaves a layer that will not redraw itself, because submit early-returns on no invalid rects
       // and so never reaches checkFrameBuffer. See traceLayerTexture.
-      traceLayerTexture("destroy", intermediate_layer_, width_, height_, width_, height_,
+      // The route is composed into the event so one field reads unambiguously: "destroy-via-setHdr"
+      // rather than a bare caller name that could be mistaken for a resize line.
+      char event[64] = {};
+      std::snprintf(event, sizeof(event), "destroy-via-%s", caller);
+      traceLayerTexture(event, intermediate_layer_, width_, height_, width_, height_,
                         frame_buffer_data_->handle.idx, anyInvalidRects());
       bgfx::destroy(frame_buffer_data_->handle);
       frame_buffer_data_->handle = BGFX_INVALID_HANDLE;
