@@ -158,8 +158,11 @@ namespace visage {
       // the coordinates move rather than after, so a reader can never see the new packing with the old
       // count.
       font_atlas_repacks.fetch_add(1, std::memory_order_relaxed);
-      // Traced AFTER the repack, so the width is the one that now applies.
-      traceAtlasResize("FONT", atlas_map_.width());
+      // Traced AFTER the repack, so the width is the one that now applies. The size and the rect
+      // count travel with it because every font size owns a separate atlas — a bare width cannot say
+      // which one moved — and because the width alone cannot distinguish an atlas sized to a single
+      // glyph from one that started at the default.
+      traceAtlasResize("FONT", size_, atlas_map_.width(), atlas_map_.numRects());
       for (auto& glyph : packed_glyphs_) {
         if (glyph.second.width == 0)
           continue;
@@ -562,6 +565,10 @@ namespace visage {
       type_face_data.data = type_face_data_lookup_[type_face_data].get();
       type_face_data_ref_count_[type_face_data]++;
       cache_[id] = std::make_unique<PackedFont>(id, size, font_data, data_size);
+      // A SIZE DRAWN FOR THE FIRST TIME, which is the event the pair of resizes that follows is only
+      // the shadow of. Traced here, at the cache MISS, so the log names it outright instead of
+      // leaving it to be reconstructed from two atlas widths.
+      traceFontCreated(size);
     }
 
     return incrementPackedFont(id);

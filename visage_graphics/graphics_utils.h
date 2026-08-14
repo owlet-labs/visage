@@ -121,12 +121,40 @@ namespace visage {
   /// NOT RATE-BOUNDED, unlike the glyph line below, and that asymmetry is the point of the pair. A
   /// repack is the event that moves already-submitted draws, so every single one has to be readable
   /// against the moment a screenshot was taken; there are tens of them in a session, not thousands.
-  inline void traceAtlasResize(const char* which, int newWidth) {
+  ///
+  /// THE SIZE AND THE RECT COUNT ARE WHAT MAKE THE WIDTH READABLE, and their absence cost a session's
+  /// log analysis real time. Every font SIZE owns a SEPARATE atlas, so a bare width cannot say which
+  /// one moved. And the width alone genuinely misleads, because `PackedAtlasMap::pack` has two
+  /// branches: with exactly ONE rect it sizes the atlas to that glyph plus a pixel of padding — which
+  /// is where absurd-looking widths like 8, 9 and 13 come from — and with two or more it starts at
+  /// kDefaultWidth, 64. So a (small, 64) PAIR on one size is not an atlas growing under pressure. It
+  /// is a PackedFont being BORN: its first glyph, then its second. The count says which branch ran so
+  /// that nobody has to infer it from the number.
+  inline void traceAtlasResize(const char* which, int size, int newWidth, int numRects) {
     if (!atlasTraceEnabled()) {
       return;
     }
-    std::fprintf(stderr, "[VISAGE-ATLAS] %s resize -> %d at %lld\n", which, newWidth,
-                 traceMilliseconds());
+    std::fprintf(stderr, "[VISAGE-ATLAS] %s size %d resize -> %d (%d rects) at %lld\n", which, size,
+                 newWidth, numRects, traceMilliseconds());
+    std::fflush(stderr);
+  }
+
+  /// A FONT SIZE USED FOR THE FIRST TIME — the event a (small, 64) pair of resizes is only the shadow
+  /// of.
+  ///
+  /// PackedFonts are cached per typeface and PIXEL SIZE, so a size never drawn before mints an entire
+  /// new atlas: an empty packer, a resize for glyph one, another for glyph two. Reconstructing that
+  /// from resize widths is guesswork, and guesswork about which font moved is exactly what stalls an
+  /// analysis. This states it, with the size — so "a new font size appeared mid-drag" becomes a line
+  /// rather than an inference, and if one does appear mid-gesture then whatever computes a font size
+  /// from a live value is worth finding.
+  ///
+  /// Unbounded: a session holds a few dozen sizes at the very most.
+  inline void traceFontCreated(int size) {
+    if (!atlasTraceEnabled()) {
+      return;
+    }
+    std::fprintf(stderr, "[VISAGE-ATLAS] FONT size %d CREATED at %lld\n", size, traceMilliseconds());
     std::fflush(stderr);
   }
 
@@ -139,22 +167,33 @@ namespace visage {
   /// hands the atlas characters it has never packed, once per gesture, and a parameter storm driven
   /// through the automation road hands it none.
   ///
-  /// RATE-BOUNDED, and deliberately the other way round from the reports further down. Those are
-  /// bounded because they should never fire at all, so eight is generous. This one fires by design,
-  /// hundreds of times in a first second — so what needs protecting is the LOG rather than the
-  /// reader's attention. The first 200 carry a session's opening in full; every 50th after that
-  /// carries its shape. The ordinal is printed, so a reader can see what was skipped instead of
-  /// inferring it from a gap.
+  /// UNBOUNDED, and it was bounded until a real session proved that wrong. First-200-then-every-50th
+  /// looked prudent and cost the analysis its middle: glyph #350 was logged at startup and #400
+  /// twelve seconds later, so adds #351 through #399 — every one of them inside the gesture window
+  /// being investigated — had no timestamps at all. A thinned line cannot be correlated with anything,
+  /// which for this line is the entire purpose.
+  ///
+  /// MEASURED BEFORE BEING UNBOUNDED, rather than assumed affordable: a startup packs about 200 and a
+  /// long session a few hundred more. That is a handful of kilobytes. The cap below is a disk-fill
+  /// guard set two orders of magnitude above anything observed, not a sampling rate — if it ever
+  /// fires, that is itself the finding, and it says so on the way out.
   inline void traceGlyphPacked(char32_t character, int font_size, int atlas_width) {
     if (!atlasTraceEnabled()) {
       return;
     }
 
-    static constexpr int kUnthinnedReports = 200;
-    static constexpr int kThinnedEvery = 50;
+    static constexpr int kRunawayGuard = 50000;
     static std::atomic<int> packed { 0 };
     const int ordinal = packed.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (ordinal > kUnthinnedReports && ordinal % kThinnedEvery != 0) {
+    if (ordinal > kRunawayGuard) {
+      return;
+    }
+    if (ordinal == kRunawayGuard) {
+      std::fprintf(stderr,
+                   "[VISAGE-ATLAS] glyph runaway: %d packed, far past anything measured - "
+                   "further glyph lines suppressed\n",
+                   kRunawayGuard);
+      std::fflush(stderr);
       return;
     }
 
