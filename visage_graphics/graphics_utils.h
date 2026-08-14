@@ -465,6 +465,32 @@ namespace visage {
   /// repainting, one when it stops, carrying the run length — so a burst costs two lines whether it
   /// spans three frames or three thousand, and the GAP between two bursts is exactly the window in
   /// which anything drawn there was preserved untouched.
+  /// WHAT THE LAST FRAME ACTUALLY REPAINTED, readable by a probe rather than only printable.
+  ///
+  /// The edge-triggered line below is right for a session log and useless to a harness photographing
+  /// every frame: a capture loop needs to record, for the frame it just took, whether that frame
+  /// redrew anything and whether it touched the area under suspicion. This is that, updated once per
+  /// `Canvas::submit` and readable straight afterwards.
+  ///
+  /// AND IT ANSWERS THE FIRST QUESTION A NEW VENUE HAS TO ASK ITSELF: does it carry pixels forward at
+  /// all? A harness that full-redraws every present cannot reproduce a PINNED artifact however
+  /// faithfully it stages the corruption, and would report clean frames forever while the venue —
+  /// not the code — was the reason. Damage falling to zero on quiet frames means the retention is
+  /// real and partial. A venue repainting everything every frame reports every region damaged,
+  /// always, and pinning cannot be tested there.
+  ///
+  /// Not gated on the trace: a probe reading these should not have to also be logging.
+  struct FrameDamage {
+    int regions = 0;      ///< regions with any damage this frame
+    int rects = 0;        ///< damage rectangles across all of them
+    bool corner = false;  ///< did any rectangle reach the top-left 100x100
+  };
+
+  inline FrameDamage& lastFrameDamage() {
+    static FrameDamage damage;
+    return damage;
+  }
+
   inline void traceCornerDamage(bool damagedThisFrame) {
     if (!batchTraceEnabled()) {
       return;

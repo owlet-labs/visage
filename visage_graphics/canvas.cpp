@@ -104,20 +104,28 @@ namespace visage {
     // This exists because the renderer carries pixels forward: outside these rectangles the screen
     // keeps what it had. Knowing WHEN an area was last repainted is what distinguishes ink written
     // once and preserved from ink redrawn every frame — see traceCornerDamage.
-    if (batchTraceEnabled()) {
+    {
       static constexpr int kCorner = 100;
-      bool corner = false;
+      FrameDamage damage;
       if (layers_.size() > 1) {
         for (const auto& region_rects : layers_[1]->invalidRects()) {
+          if (region_rects.second.empty())
+            continue;
+
+          damage.regions++;
           for (const IBounds& rect : region_rects.second) {
+            damage.rects++;
             if (rect.x() < kCorner && rect.x() + rect.width() > 0 && rect.y() < kCorner
                 && rect.y() + rect.height() > 0) {
-              corner = true;
+              damage.corner = true;
             }
           }
         }
       }
-      traceCornerDamage(corner);
+      // Recorded UNCONDITIONALLY so a probe photographing every frame can read what that frame
+      // repainted without also having to run the log; only the line below is gated on tracing.
+      lastFrameDamage() = damage;
+      traceCornerDamage(damage.corner);
     }
 
     default_region_.computeBackdropCount();
