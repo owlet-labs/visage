@@ -21,6 +21,8 @@
 
 #include "canvas.h"
 
+#include <cstdlib>
+
 #include "palette.h"
 #include "font.h"
 #include "renderer.h"
@@ -93,6 +95,32 @@ namespace visage {
     // BEFORE ANYTHING IS SUBMITTED. A repack during the last frame left stale glyph coordinates in
     // whatever was batched before it; this is where that frame stops being kept.
     checkFontAtlasRepack();
+
+    // FORCE A FULL REPAINT EVERY FRAME — an INTERVENTION, not a diagnostic, and the difference
+    // matters. Every check in this codebase so far reports what happened; this one CHANGES what
+    // happens, so that a hypothesis can be tested by whether the fault survives it.
+    //
+    // The fault under test: an intermediate layer's contents are not preserved between frames by the
+    // driver. visage never calls setViewClear and relies entirely on a render target keeping what it
+    // held, while Vulkan render passes are free to declare previous contents UNDEFINED — in which
+    // case a frame shows whatever it drew and garbage everywhere else. That is exactly a photograph
+    // in which the rectangles being repainted are pristine and everything unrepainted is static.
+    //
+    // If that is the mechanism, repainting EVERYTHING every frame hides it completely: there is no
+    // "everywhere else" left. If the fault survives this, something is actively writing and the
+    // preservation story is wrong. Either outcome is worth a four-minute run.
+    //
+    // PLACED BEFORE THE DAMAGE MEASUREMENT BELOW, so the corner trace reports what this frame really
+    // repaints rather than what it would have repainted without the intervention. Measuring above the
+    // thing you changed produces a log that calmly contradicts the run.
+    //
+    // Off unless VISAGE_FULL_REDRAW is set. It costs a full repaint per frame, which is exactly the
+    // point and exactly why it is not a default.
+    static const bool full_redraw = std::getenv("VISAGE_FULL_REDRAW") != nullptr;
+    if (full_redraw) {
+      for (Layer* layer : layers_)
+        layer->invalidate();
+    }
 
     // IS THE TOP-LEFT CORNER BEING REPAINTED THIS FRAME? Asked here, before the damage is consumed
     // and cleared further down, because after submission the rectangles are gone.
