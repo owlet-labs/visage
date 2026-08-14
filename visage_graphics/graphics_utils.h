@@ -407,6 +407,52 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// A QUAD IN THE TOP-LEFT CORNER THAT ITS REGION CANNOT ACCOUNT FOR — the aimed half of WILD
+  /// above, pointed at the one costume that keeps getting photographed.
+  ///
+  /// WILD catches a coordinate that is not a number. This catches one that IS: a shape landing in
+  /// the top-left 100x100 of the surface it renders into, while the region drawing it sits somewhere
+  /// else entirely. That is the arithmetic of a caller handing over an ABSOLUTE zero where a
+  /// region-local coordinate was wanted — the shape's own x is then exactly minus its region's — and
+  /// it is why both halves are printed rather than their sum. A local of (-516, -968) under a region
+  /// at (516, 968) names the mistake outright; a local of (0, 0) under a region reported at the
+  /// origin would mean something quite different and is not this.
+  ///
+  /// CHECKED AFTER THE CLAMP, which is what keeps it from being noise. A shape reaching out of its
+  /// region towards the corner is normally refused by `totallyClamped` and never reaches here at
+  /// all; only geometry that survives clamping — geometry that will actually reach pixels — is
+  /// examined. That is the same set as the geometry in the screenshots.
+  ///
+  /// WHAT IT CANNOT SEE, which matters more than what it can, because a silent tripwire gets read as
+  /// an alibi. A region that is ITSELF at the top-left draws there legitimately all day — the root
+  /// region and the window background both are — so such regions are excluded wholesale, and a fault
+  /// inside one of them passes unremarked. Silence here NARROWS the suspects. It does not clear
+  /// them.
+  ///
+  /// Release, and bounded like its neighbours but at 64 rather than 8: this fault redraws every
+  /// frame once it starts, and eight lines could not show whether it began with a gesture.
+  inline void traceBatchOriginPosition(std::string_view which, float x, float y, float width,
+                                       float height, int region_x, int region_y) {
+    static constexpr int kMaxOriginReports = 64;
+    static std::atomic<int> reports { 0 };
+    const int seen = reports.load(std::memory_order_relaxed);
+    if (seen >= kMaxOriginReports) {
+      return;
+    }
+
+    reports.store(seen + 1, std::memory_order_relaxed);
+    const bool last = seen + 1 == kMaxOriginReports;
+    std::fprintf(stderr,
+                 "[VISAGE-BATCH] ORIGIN %.*s local (%g, %g) size (%g x %g) in region at (%d, %d) "
+                 "-> draws at (%g, %g) at %lld%s\n",
+                 static_cast<int>(which.size()), which.data(), static_cast<double>(x),
+                 static_cast<double>(y), static_cast<double>(width), static_cast<double>(height),
+                 region_x, region_y, static_cast<double>(x) + region_x,
+                 static_cast<double>(y) + region_y, traceMilliseconds(),
+                 last ? " (further reports suppressed)" : "");
+    std::fflush(stderr);
+  }
+
   /// A WHOLE BATCH GOING MISSING, which is the failure that actually fires — and until now the one
   /// nothing anywhere reported.
   ///

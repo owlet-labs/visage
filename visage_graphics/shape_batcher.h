@@ -131,6 +131,35 @@ namespace visage {
            || !std::isfinite(shape.height);
   }
 
+  /// Does this shape land in the corner while its region sits elsewhere?
+  ///
+  /// THE QUAD LEVEL IS WHERE THIS QUESTION CAN BE ASKED AT ALL. A region's own position is not
+  /// enough — its sub-regions are positioned relative to it and never appear in the loop that walks
+  /// the layer's regions — and an intermediate layer's region coordinates are ATLAS-PACKED slots
+  /// rather than window positions, so a check up there compares two different spaces. Here
+  /// `region_x/region_y` is whatever offset this quad will actually be written with, and
+  /// `shape.x + region_x` is where it lands on the surface, whichever surface that is. The test is
+  /// self-consistent in both cases: on the window it means the window's corner, and on an
+  /// intermediate atlas it means a quad that has escaped its packed slot into somebody else's.
+  ///
+  /// A REGION ALREADY IN THE CORNER IS EXEMPT, and that exemption is the whole reason this stays
+  /// quiet on ordinary frames — the root region and the background are both there and draw at the
+  /// origin constantly. It is also the tripwire's blind spot, written out at
+  /// `traceBatchOriginPosition`.
+  ///
+  /// Non-finite coordinates make every comparison below false, so a wild shape is not reported
+  /// twice; `wildPosition` owns that case.
+  inline bool originQuad(const BaseShape& shape, int region_x, int region_y) {
+    static constexpr float kCorner = 100.0f;
+    if (region_x < kCorner && region_y < kCorner) {
+      return false;
+    }
+
+    const float left = shape.x + region_x;
+    const float top = shape.y + region_y;
+    return left < kCorner && left + shape.width > 0.0f && top < kCorner && top + shape.height > 0.0f;
+  }
+
   template<typename T>
   QuadVertices<typename T::Vertex> setupQuads(const BatchVector<T>& batches) {
     QuadVertices<typename T::Vertex> results;
@@ -154,6 +183,10 @@ namespace visage {
 
           if (wildPosition(shape)) {
             traceBatchWildPosition(kBatchName, shape.x, shape.y, shape.width, shape.height);
+          }
+          else if (originQuad(shape, batch.x, batch.y)) {
+            traceBatchOriginPosition(kBatchName, shape.x, shape.y, shape.width, shape.height,
+                                     batch.x, batch.y);
           }
           clamp = clamp.withOffset(batch.x, batch.y);
           setQuadPositions(results.vertices + vertex_index, shape, clamp, batch.x, batch.y);
@@ -217,6 +250,10 @@ namespace visage {
 
           if (wildPosition(shape)) {
             traceBatchWildPosition(batchTypeName<T>(), shape.x, shape.y, shape.width, shape.height);
+          }
+          else if (originQuad(shape, batch.x, batch.y)) {
+            traceBatchOriginPosition(batchTypeName<T>(), shape.x, shape.y, shape.width, shape.height,
+                                     batch.x, batch.y);
           }
           clamp = clamp.withOffset(batch.x, batch.y);
           setQuadPositions(vertices + written * kVerticesPerQuad, shape, clamp, batch.x, batch.y);
