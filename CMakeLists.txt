@@ -31,6 +31,14 @@ option(VISAGE_ADDRESS_SANITIZER "Enable AddressSanitizer" OFF)
 # plugin's own diagnostics through a single cache entry.
 option(FEATHERS_DIAGNOSTIC "Compile the atlas and batch traces in unconditionally" OFF)
 
+# THE COARSE FIX for an intermediate layer whose contents are not reliably preserved between frames:
+# repaint everything, every frame, so there is no unrepainted remainder for undefined contents to
+# occupy. Proven by experiment — reproduced twice under a control arm, absent across three cycles
+# with this on. Gives up partial damage, which is an optimisation rather than a correctness
+# requirement. A compile flag for the same reason the diagnostic build uses one: a fix that a
+# launcher can drop is not a fix. See fullRedrawBuild() in visage_graphics/graphics_utils.h.
+option(FEATHERS_FULL_REDRAW "Repaint every layer every frame" OFF)
+
 if (VISAGE_ADDRESS_SANITIZER)
   if (MSVC)
     add_compile_options(/fsanitize=address /Zi)
@@ -136,6 +144,12 @@ if (FEATHERS_DIAGNOSTIC)
   target_compile_definitions(VisageGraphics PUBLIC FEATHERS_DIAGNOSTIC)
   target_compile_definitions(visage PUBLIC FEATHERS_DIAGNOSTIC)
   message(STATUS "VISAGE: FEATHERS_DIAGNOSTIC build - atlas and batch traces compiled in")
+endif ()
+
+if (FEATHERS_FULL_REDRAW)
+  target_compile_definitions(VisageGraphics PUBLIC FEATHERS_FULL_REDRAW)
+  target_compile_definitions(visage PUBLIC FEATHERS_FULL_REDRAW)
+  message(STATUS "VISAGE: FEATHERS_FULL_REDRAW build - every layer repaints every frame")
 endif ()
 
 if (VISAGE_BUILD_EXAMPLES)

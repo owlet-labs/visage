@@ -85,6 +85,30 @@ namespace visage {
 #endif
   }
 
+  /// REPAINT EVERYTHING, EVERY FRAME — the fix, compiled in rather than asked for.
+  ///
+  /// An intermediate layer's contents are not reliably preserved between frames on this stack. The
+  /// artifact that follows was reproduced twice under a control arm and did not occur at all across
+  /// three cycles with full repainting on, in the same session, minutes apart. Repaint everything and
+  /// there is no unrepainted remainder for undefined contents to occupy.
+  ///
+  /// THIS GIVES UP PARTIAL DAMAGE, WHICH IS AN OPTIMISATION AND NOT A CORRECTNESS REQUIREMENT — most
+  /// user interfaces redraw fully at 60fps and nothing about this one needs otherwise. The measured
+  /// price is quads submitted per frame, 215 to about 1520, comfortably inside a transient arena that
+  /// holds roughly 18000.
+  ///
+  /// A COMPILE FLAG RATHER THAN THE ENVIRONMENT, for the reason the diagnostic build uses one: a
+  /// launcher, a sandbox or a habit can drop a variable silently, and a fix that can be turned off by
+  /// accident is not a fix. Off by default, so an ordinary build of this tree is unchanged and the
+  /// narrow fix can replace it without a revert.
+  constexpr bool fullRedrawBuild() {
+#ifdef FEATHERS_FULL_REDRAW
+    return true;
+#else
+    return false;
+#endif
+  }
+
   /// CLOCK_REALTIME, in milliseconds, so a line can be lined up against a screenshot's mtime or a
   /// capture named with `date +%s%N`. An earlier version used CLOCK_MONOTONIC — which counts from
   /// boot — and the two differ by five orders of magnitude, so every correlation would have been

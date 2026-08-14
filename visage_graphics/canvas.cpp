@@ -116,7 +116,7 @@ namespace visage {
     //
     // Off unless VISAGE_FULL_REDRAW is set. It costs a full repaint per frame, which is exactly the
     // point and exactly why it is not a default.
-    static const bool full_redraw = std::getenv("VISAGE_FULL_REDRAW") != nullptr;
+    static const bool full_redraw = fullRedrawBuild() || std::getenv("VISAGE_FULL_REDRAW") != nullptr;
     if (full_redraw) {
       for (Layer* layer : layers_)
         layer->invalidate();
