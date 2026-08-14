@@ -465,6 +465,54 @@ namespace visage {
   /// repainting, one when it stops, carrying the run length — so a burst costs two lines whether it
   /// spans three frames or three thousand, and the GAP between two bursts is exactly the window in
   /// which anything drawn there was preserved untouched.
+
+  /// THE OTHER ATLAS — the one nothing here has ever traced, and a different beast from the font's.
+  ///
+  /// An intermediate layer packs its REGIONS into a single texture, and `coordinatesForRegion`
+  /// returns a region's slot in that texture rather than a window position. A region that needs a
+  /// layer is re-packed on every `setBounds`, because `setupIntermediateRegion` calls
+  /// `changePackedLayer`, which is a remove followed by an add — so a mere resize hands the region a
+  /// NEW SLOT in the layer texture.
+  ///
+  /// WHY THAT DESERVES A LINE. `addPackedRegion` invalidates only when the add FAILS and forces a
+  /// repack. When the region fits, it is quietly given a fresh slot and NOTHING IS MARKED DIRTY — and
+  /// the layer texture has never been drawn at that slot, so a composite reading from it reads
+  /// whatever the texture happened to hold. Uninitialised texture memory composited into a window is
+  /// dense noise, in a rectangle, clipped to wherever that composite lands.
+  ///
+  /// So the line carries the slot, whether a repack happened, and — the load-bearing field — whether
+  /// the region is DIRTY afterwards. A slot change with `dirty 0` means a composite is about to read
+  /// pixels nobody ever wrote.
+  ///
+  /// Unbounded: regions are packed on layout and on resize, tens of times in a session, never per
+  /// frame.
+  inline void traceLayerRegionPacked(bool intermediate, int width, int height, int slotX, int slotY,
+                                     bool repacked, bool dirty) {
+    if (!batchTraceEnabled()) {
+      return;
+    }
+    // WHICH LAYER, because only an INTERMEDIATE one composites from these slots. The main window
+    // layer keeps an atlas map too and never reads it — `boundsForRegion` returns window coordinates
+    // there — so a line without this word invites reading ordinary setup as the fault.
+    std::fprintf(stderr,
+                 "[VISAGE-LAYER] %s region %dx%d -> slot (%d, %d) repacked %d dirty %d at %lld\n",
+                 intermediate ? "intermediate" : "window", width, height, slotX, slotY,
+                 repacked ? 1 : 0, dirty ? 1 : 0, traceMilliseconds());
+    std::fflush(stderr);
+  }
+
+  /// A REGION LEAVING THE LAYER ATLAS. Paired with the line above so that a remove-then-add — which
+  /// is what every re-bounds of a layer-backed region actually is — reads as the two events it is,
+  /// rather than as one unexplained slot change.
+  inline void traceLayerRegionRemoved(bool intermediate, int width, int height) {
+    if (!batchTraceEnabled()) {
+      return;
+    }
+    std::fprintf(stderr, "[VISAGE-LAYER] %s region %dx%d removed at %lld\n",
+                 intermediate ? "intermediate" : "window", width, height, traceMilliseconds());
+    std::fflush(stderr);
+  }
+
   /// WHAT THE LAST FRAME ACTUALLY REPAINTED, readable by a probe rather than only printable.
   ///
   /// The edge-triggered line below is right for a session log and useless to a harness photographing

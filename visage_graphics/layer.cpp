@@ -407,14 +407,26 @@ namespace visage {
 
   void Layer::addPackedRegion(Region* region) {
     addRegion(region);
-    if (!atlas_map_.addRect(region, region->width(), region->height())) {
+    const bool repacked = !atlas_map_.addRect(region, region->width(), region->height());
+    if (repacked) {
       atlas_map_.pack();
       invalidate();
       setDimensions(atlas_map_.width(), atlas_map_.height());
     }
+
+    // THE SLOT THIS REGION WILL BE COMPOSITED FROM, and whether anything is going to draw into it.
+    // A region that FITS takes a fresh slot without the invalidate above ever running, and the layer
+    // texture has never been written there — so `dirty 0` on a new slot means the next composite
+    // reads pixels nobody wrote. See traceLayerRegionPacked for why that is the whole point.
+    const PackedRect& slot = atlas_map_.rectForId(region);
+    const auto dirty = invalid_rects_.find(region);
+    traceLayerRegionPacked(intermediate_layer_, region->width(), region->height(), slot.x,
+                           slot.y, repacked,
+                           dirty != invalid_rects_.end() && !dirty->second.empty());
   }
 
   void Layer::removePackedRegion(const Region* region) {
+    traceLayerRegionRemoved(intermediate_layer_, region->width(), region->height());
     removeRegion(region);
     atlas_map_.removeRect(region);
   }
