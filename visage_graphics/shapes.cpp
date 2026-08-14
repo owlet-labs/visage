@@ -63,5 +63,17 @@ namespace visage {
 
   void SampleRegion::setVertexData(Vertex* vertices) const {
     region->layer()->setTexturePositionsForRegion(region, vertices);
+
+    // TRACED HERE because this is the moment both halves exist. setQuadPositions has already written
+    // the DESTINATION into these vertices, and the call above has just written the SOURCE — so this is
+    // the only point where a blit's two coordinate spaces can be reported side by side. Opt-in and
+    // verbose; see traceBlit.
+    if (blitTraceEnabled()) {
+      const Layer* source = region->layer();
+      traceBlit(source->isIntermediate(), source->width(), source->height(), vertices[0].x,
+                vertices[0].y, vertices[3].x, vertices[3].y,
+                static_cast<int>(vertices[0].texture_x), static_cast<int>(vertices[0].texture_y),
+                static_cast<int>(vertices[3].texture_x), static_cast<int>(vertices[3].texture_y));
+    }
   }
 }

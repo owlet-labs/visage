@@ -513,6 +513,63 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// EVERY COMPOSITE OF A LAYER INTO ANOTHER — the one path that puts pixels on screen WITHOUT being
+  /// a shape in the damage-clamped batcher walk, and therefore the one path every tripwire here is
+  /// blind to.
+  ///
+  /// WHY THIS EXISTS. A wedge was photographed with ORIGIN silent, WILD silent, no atlas event within
+  /// 32 seconds, no layer-atlas event within 40, and no damage on its corner within 33. In a renderer
+  /// that carries pixels forward, something wrote to the surface entirely outside the damage system.
+  /// A composite is that: `Canvas::submit` invalidates the composite layer and resubmits it EVERY
+  /// frame regardless of damage, so a blit runs whether or not anything asked for one.
+  ///
+  /// WHAT IT PRINTS AND WHY EACH FIELD IS THERE. The destination rectangle in the space it is drawn
+  /// in; the SOURCE rectangle, which is `coordinatesForRegion` output and is ATLAS-PACKED for an
+  /// intermediate layer and a window position otherwise — the two spaces whose crossing is the
+  /// suspected fault; and the source layer's dimensions, because the shader divides by them
+  /// (`kAtlasScale`), so a rectangle correct in pixels is still wrong if it is scaled by the wrong
+  /// layer's size. A blit whose source rectangle lies outside its own layer's dimensions is sampling
+  /// texture nobody wrote, which is what uninitialised static IS.
+  ///
+  /// OPT-IN AND VERBOSE, by its own environment variable rather than the diagnostic flag: this fires
+  /// per composited region per frame, which is right for a four-minute probe run against a
+  /// deterministic reproduction and wrong for anybody's session.
+  inline bool blitTraceEnabled() {
+    static const bool enabled = std::getenv("VISAGE_TRACE_BLIT") != nullptr;
+    return enabled;
+  }
+
+  inline void traceBlit(bool intermediate, int layerWidth, int layerHeight, float destLeft,
+                        float destTop, float destRight, float destBottom, int srcLeft, int srcTop,
+                        int srcRight, int srcBottom) {
+    if (!blitTraceEnabled()) {
+      return;
+    }
+
+    // NAMED WHEN IT IS ALREADY WRONG, so a reader does not have to check the arithmetic on every one
+    // of thousands of lines. Sampling outside the source layer is the failure this hunt is about.
+    const bool outside = srcLeft < 0 || srcTop < 0 || srcRight > layerWidth || srcBottom > layerHeight;
+    std::fprintf(stderr,
+                 "[VISAGE-BLIT] %s src (%d,%d)-(%d,%d) of %dx%d -> dest (%g,%g)-(%g,%g)%s at %lld\n",
+                 intermediate ? "intermediate" : "window", srcLeft, srcTop, srcRight, srcBottom,
+                 layerWidth, layerHeight, static_cast<double>(destLeft), static_cast<double>(destTop),
+                 static_cast<double>(destRight), static_cast<double>(destBottom),
+                 outside ? "  OUTSIDE-SOURCE" : "", traceMilliseconds());
+    std::fflush(stderr);
+  }
+
+  /// A LAYER BEING CREATED, which the packing trace above cannot show: a region joining an existing
+  /// layer's atlas is one event, a whole new layer coming into existence is another, and only the
+  /// first was ever reported. If a subtree is promoted to its own layer mid-session — the classic
+  /// reason being an opacity animation — this is the line that says so.
+  inline void traceLayerCreated(int index) {
+    if (!batchTraceEnabled()) {
+      return;
+    }
+    std::fprintf(stderr, "[VISAGE-LAYER] layer %d CREATED at %lld\n", index, traceMilliseconds());
+    std::fflush(stderr);
+  }
+
   /// WHAT THE LAST FRAME ACTUALLY REPAINTED, readable by a probe rather than only printable.
   ///
   /// The edge-triggered line below is right for a session log and useless to a harness photographing

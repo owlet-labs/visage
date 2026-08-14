@@ -185,6 +185,10 @@ namespace visage {
       intermediate_layers_.push_back(std::make_unique<Layer>(&gradient_atlas_));
       intermediate_layers_.back()->setIntermediateLayer(true);
       layers_.push_back(intermediate_layers_.back().get());
+      // A WHOLE LAYER COMING INTO EXISTENCE, which the packing trace cannot show — that reports a
+      // region joining an atlas, not the atlas being born. If a subtree is promoted to its own layer
+      // mid-session, this is the line that says so.
+      traceLayerCreated(static_cast<int>(layers_.size()) - 1);
     }
   }
 

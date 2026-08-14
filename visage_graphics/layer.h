@@ -51,6 +51,7 @@ namespace visage {
     int submit(int submit_pass, int backdrop_count);
 
     void setIntermediateLayer(bool intermediate_layer) { intermediate_layer_ = intermediate_layer; }
+    bool isIntermediate() const { return intermediate_layer_; }
     void addRegion(Region* region);
     void removeRegion(const Region* region) {
       auto it = std::find(regions_.begin(), regions_.end(), region);
