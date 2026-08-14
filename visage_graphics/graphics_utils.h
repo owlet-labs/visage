@@ -446,6 +446,53 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// WHEN THE CORNER LAST REPAINTED — the line that separates ink written ONCE AND KEPT from ink
+  /// drawn fresh every frame, without having to catch the draw itself.
+  ///
+  /// THIS RENDERER CARRIES PIXELS FORWARD, which is the fact the whole line rests on. There is no
+  /// `setViewClear` anywhere in this fork; `Layer::clearInvalidRectAreas` paints opaque fills over the
+  /// invalid rectangles and over nothing else. Every pixel outside a frame's damage is therefore last
+  /// frame's pixel, indefinitely — so ONE bad draw is enough to put something on screen permanently.
+  /// It survives until something damages that rectangle and vanishes exactly when something does,
+  /// which is what a glitch that disappears under a passing panel actually is.
+  ///
+  /// So the useful question is not what drew the ink but WHEN THAT AREA WAS LAST REPAINTED. Read
+  /// against a screenshot's timestamp, these lines say whether the corner was being redrawn while the
+  /// artifact was visible, which decides between the two models on their own.
+  ///
+  /// EDGE-TRIGGERED RATHER THAN PER FRAME, because a drag repaints continuously and sixty lines a
+  /// second would bury the log this is meant to make readable. One line when the corner starts
+  /// repainting, one when it stops, carrying the run length — so a burst costs two lines whether it
+  /// spans three frames or three thousand, and the GAP between two bursts is exactly the window in
+  /// which anything drawn there was preserved untouched.
+  inline void traceCornerDamage(bool damagedThisFrame) {
+    if (!batchTraceEnabled()) {
+      return;
+    }
+
+    // Main thread only, like the whole submit path this is called from.
+    static bool repainting = false;
+    static long long runFrames = 0;
+
+    if (damagedThisFrame) {
+      runFrames++;
+      if (!repainting) {
+        repainting = true;
+        std::fprintf(stderr, "[VISAGE-DAMAGE] corner repaint BEGAN at %lld\n", traceMilliseconds());
+        std::fflush(stderr);
+      }
+      return;
+    }
+
+    if (repainting) {
+      repainting = false;
+      std::fprintf(stderr, "[VISAGE-DAMAGE] corner repaint ENDED after %lld frames at %lld\n",
+                   runFrames, traceMilliseconds());
+      std::fflush(stderr);
+      runFrames = 0;
+    }
+  }
+
   /// A QUAD IN THE TOP-LEFT CORNER THAT ITS REGION CANNOT ACCOUNT FOR — the aimed half of WILD
   /// above, pointed at the one costume that keeps getting photographed.
   ///

@@ -93,6 +93,33 @@ namespace visage {
     // BEFORE ANYTHING IS SUBMITTED. A repack during the last frame left stale glyph coordinates in
     // whatever was batched before it; this is where that frame stops being kept.
     checkFontAtlasRepack();
+
+    // IS THE TOP-LEFT CORNER BEING REPAINTED THIS FRAME? Asked here, before the damage is consumed
+    // and cleared further down, because after submission the rectangles are gone.
+    //
+    // layers_[1] is the top-level window layer — the same one this function already treats as the
+    // source of top-level damage when it propagates backdrop invalidation a few lines below. Its
+    // rectangles are in surface coordinates, so the corner means the window's corner.
+    //
+    // This exists because the renderer carries pixels forward: outside these rectangles the screen
+    // keeps what it had. Knowing WHEN an area was last repainted is what distinguishes ink written
+    // once and preserved from ink redrawn every frame — see traceCornerDamage.
+    if (batchTraceEnabled()) {
+      static constexpr int kCorner = 100;
+      bool corner = false;
+      if (layers_.size() > 1) {
+        for (const auto& region_rects : layers_[1]->invalidRects()) {
+          for (const IBounds& rect : region_rects.second) {
+            if (rect.x() < kCorner && rect.x() + rect.width() > 0 && rect.y() < kCorner
+                && rect.y() + rect.height() > 0) {
+              corner = true;
+            }
+          }
+        }
+      }
+      traceCornerDamage(corner);
+    }
+
     default_region_.computeBackdropCount();
     int submission = submit_pass;
     int last_submission = submission - 1;
