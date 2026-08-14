@@ -184,6 +184,8 @@ namespace visage {
         bgfx::frame();
 
       render_frame_++;
+      // One line per batch, once per frame, after everything has been submitted.
+      flushQuadCensus();
       FontCache::clearStaleFonts();
       gradient_atlas_.clearStaleGradients();
       image_atlas_.clearStaleImages();

@@ -189,6 +189,8 @@ namespace visage {
                                      batch.x, batch.y);
           }
           clamp = clamp.withOffset(batch.x, batch.y);
+          censusQuad(kBatchName, batch.x, batch.y, shape.x + batch.x, shape.y + batch.y,
+                     shape.x + batch.x + shape.width, shape.y + batch.y + shape.height);
           setQuadPositions(results.vertices + vertex_index, shape, clamp, batch.x, batch.y);
           shape.setVertexData(results.vertices + vertex_index);
           results.radial_gradient = shape.radialGradient();
@@ -256,6 +258,8 @@ namespace visage {
                                      batch.x, batch.y);
           }
           clamp = clamp.withOffset(batch.x, batch.y);
+          censusQuad(batchTypeName<T>(), batch.x, batch.y, shape.x + batch.x, shape.y + batch.y,
+                     shape.x + batch.x + shape.width, shape.y + batch.y + shape.height);
           setQuadPositions(vertices + written * kVerticesPerQuad, shape, clamp, batch.x, batch.y);
           shape.setVertexData(vertices + written * kVerticesPerQuad);
           *radial_gradient = shape.radialGradient();

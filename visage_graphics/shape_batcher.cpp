@@ -343,6 +343,11 @@ namespace visage {
             float top = y + text_block.quads[i].y;
             float bottom = top + text_block.quads[i].height;
 
+            // TEXT TAKES ITS OWN PATH and so misses the census in setupQuads — which would have left
+            // the one shape type the reproduction requires uncounted, and it is the churn of these
+            // very quads that the bisect names as the necessary ingredient.
+            censusQuad("TextBlock", batch.x, batch.y, left, top, right, bottom);
+
             float texture_x = text_block.quads[i].packed_glyph->atlas_left - 0.5f;
             float texture_y = text_block.quads[i].packed_glyph->atlas_top;
             float texture_width = text_block.quads[i].packed_glyph->width + 1.0f;

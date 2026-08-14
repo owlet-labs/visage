@@ -546,6 +546,84 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// WHAT EACH BATCH ACTUALLY DREW, AND WHERE — a census by shape type with a bounding box, because
+  /// the artifact has a measured bounding box and the fastest way to name its author is to find the
+  /// batch whose extent matches it.
+  ///
+  /// WHY THIS AND NOT ANOTHER TRIPWIRE. Four routes have been eliminated by silence, and a fifth
+  /// silent check would add nothing. This one is not a tripwire: it reports on every ordinary frame,
+  /// and it is read by COMPARING a frame against its neighbours rather than by waiting for a flag. A
+  /// batch that appears only on the frame an artifact is born, or whose extent jumps to cover the
+  /// artifact's rectangle, names itself without anybody having predicted what was wrong.
+  ///
+  /// IT ALSO COVERS THE ONE BLIND SPOT LEFT BY ORIGIN. That check exempts corner-anchored regions
+  /// wholesale, so a bad draw inside a full-window region is invisible to it by construction — and a
+  /// full-window region cannot violate its own clamp however wrong the coordinates inside it are, so
+  /// the clamp argument does not constrain it either. Both protections have a hole of exactly the
+  /// same shape, and a census has no such hole: it says what was drawn regardless of whether anything
+  /// about it was detectably wrong.
+  ///
+  /// ONE LINE PER FRAME, not per batch, so a four-minute run costs thousands of lines rather than
+  /// hundreds of thousands. Opt-in through VISAGE_TRACE_QUADS.
+  inline bool quadTraceEnabled() {
+    static const bool enabled = std::getenv("VISAGE_TRACE_QUADS") != nullptr;
+    return enabled;
+  }
+
+  struct QuadCensusEntry {
+    std::string_view name;
+    int quads = 0;
+    int regionX = 0;
+    int regionY = 0;
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+  };
+
+  inline std::vector<QuadCensusEntry>& quadCensus() {
+    static std::vector<QuadCensusEntry> census;
+    return census;
+  }
+
+  /// Folds one quad into the census for its batch — matched on shape type AND region position, so two
+  /// regions drawing the same kind of shape stay distinguishable. That distinction is the point: it is
+  /// what lets a line say WHICH region grew.
+  inline void censusQuad(std::string_view name, int regionX, int regionY, float left, float top,
+                         float right, float bottom) {
+    if (!quadTraceEnabled()) {
+      return;
+    }
+    for (QuadCensusEntry& entry : quadCensus()) {
+      if (entry.name == name && entry.regionX == regionX && entry.regionY == regionY) {
+        entry.quads++;
+        entry.left = std::min(entry.left, left);
+        entry.top = std::min(entry.top, top);
+        entry.right = std::max(entry.right, right);
+        entry.bottom = std::max(entry.bottom, bottom);
+        return;
+      }
+    }
+    quadCensus().push_back({ name, 1, regionX, regionY, left, top, right, bottom });
+  }
+
+  inline void flushQuadCensus() {
+    if (!quadTraceEnabled() || quadCensus().empty()) {
+      return;
+    }
+    const long long now = traceMilliseconds();
+    for (const QuadCensusEntry& entry : quadCensus()) {
+      std::fprintf(stderr,
+                   "[VISAGE-QUADS] %.*s region (%d,%d) %d quads bbox (%g,%g)-(%g,%g) at %lld\n",
+                   static_cast<int>(entry.name.size()), entry.name.data(), entry.regionX,
+                   entry.regionY, entry.quads, static_cast<double>(entry.left),
+                   static_cast<double>(entry.top), static_cast<double>(entry.right),
+                   static_cast<double>(entry.bottom), now);
+    }
+    std::fflush(stderr);
+    quadCensus().clear();
+  }
+
   /// EVERY COMPOSITE OF A LAYER INTO ANOTHER — the one path that puts pixels on screen WITHOUT being
   /// a shape in the damage-clamped batcher walk, and therefore the one path every tripwire here is
   /// blind to.
