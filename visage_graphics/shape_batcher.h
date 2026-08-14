@@ -27,6 +27,7 @@
 #include "visage_utils/space.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <numeric>
 
@@ -123,6 +124,13 @@ namespace visage {
     bool radial_gradient = false;
   };
 
+  /// Is this shape's rectangle a rectangle? Non-finite coordinates are the ones that draw geometry
+  /// nobody asked for, and nothing else in this file would notice them.
+  inline bool wildPosition(const BaseShape& shape) {
+    return !std::isfinite(shape.x) || !std::isfinite(shape.y) || !std::isfinite(shape.width)
+           || !std::isfinite(shape.height);
+  }
+
   template<typename T>
   QuadVertices<typename T::Vertex> setupQuads(const BatchVector<T>& batches) {
     QuadVertices<typename T::Vertex> results;
@@ -144,6 +152,9 @@ namespace visage {
           if (shape.totallyClamped(clamp))
             continue;
 
+          if (wildPosition(shape)) {
+            traceBatchWildPosition(kBatchName, shape.x, shape.y, shape.width, shape.height);
+          }
           clamp = clamp.withOffset(batch.x, batch.y);
           setQuadPositions(results.vertices + vertex_index, shape, clamp, batch.x, batch.y);
           shape.setVertexData(results.vertices + vertex_index);
@@ -204,6 +215,9 @@ namespace visage {
           if (written == max_quads)
             return written;
 
+          if (wildPosition(shape)) {
+            traceBatchWildPosition(batchTypeName<T>(), shape.x, shape.y, shape.width, shape.height);
+          }
           clamp = clamp.withOffset(batch.x, batch.y);
           setQuadPositions(vertices + written * kVerticesPerQuad, shape, clamp, batch.x, batch.y);
           shape.setVertexData(vertices + written * kVerticesPerQuad);

@@ -298,6 +298,40 @@ namespace visage {
     std::fflush(stderr);
   }
 
+  /// A SHAPE AT A COORDINATE NOBODY COULD HAVE MEANT — the failure class every other report here is
+  /// blind to, because nothing about it is inconsistent.
+  ///
+  /// SHORT, UNWALKED, DROPPED and OVERFLOW all detect a disagreement: a count against a walk, a
+  /// request against an arena. A shape whose POSITION is wrong disagrees with nothing. It is counted
+  /// once, walked once, written once and drawn once — correctly, at the wrong place. Every log stays
+  /// clean and the frame is still wrong, which is exactly what a silent tripwire log beside a
+  /// screenshot of a glitch means.
+  ///
+  /// visage never checked this. A non-finite coordinate reaching `setQuadPositions` writes NaN or
+  /// infinity into vertex positions, and what the GPU does with those is undefined — in practice a
+  /// triangle stretched across the viewport, which is the filled-wedge costume. A finite but wrong
+  /// coordinate is quieter and just as wrong.
+  ///
+  /// Reports the shape's own rectangle so the line names WHICH geometry, not merely that some
+  /// existed. Release, bounded at eight, like its neighbours.
+  inline void traceBatchWildPosition(std::string_view which, float x, float y, float width, float height) {
+    static constexpr int kMaxWildReports = 8;
+    static std::atomic<int> reports { 0 };
+    const int seen = reports.load(std::memory_order_relaxed);
+    if (seen >= kMaxWildReports) {
+      return;
+    }
+
+    reports.store(seen + 1, std::memory_order_relaxed);
+    const bool last = seen + 1 == kMaxWildReports;
+    std::fprintf(stderr,
+                 "[VISAGE-BATCH] WILD %.*s at (%g, %g) size (%g x %g) - not a finite rectangle%s\n",
+                 static_cast<int>(which.size()), which.data(), static_cast<double>(x),
+                 static_cast<double>(y), static_cast<double>(width), static_cast<double>(height),
+                 last ? " (further reports suppressed)" : "");
+    std::fflush(stderr);
+  }
+
   /// A WHOLE BATCH GOING MISSING, which is the failure that actually fires — and until now the one
   /// nothing anywhere reported.
   ///
