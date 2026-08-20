@@ -613,8 +613,15 @@ namespace visage {
 
 - (void)viewDidChangeBackingProperties {
   [super viewDidChangeBackingProperties];
-  if (self.visage_window)
+  if (self.visage_window) {
     self.visage_window->resetBackingScale();
+    // A backing change is a display change, and a display change moves the goalposts the frame
+    // was sized against. The scale alone used to be taken here and nothing else, so after a move
+    // between displays of different scale the view kept a frame derived from the OLD scale: the
+    // canvas was then smaller than its window with blank edges, and moving back changed the
+    // misalignment without fixing it. The geometry is re-derived with it.
+    self.visage_window->syncFrameToParentView();
+  }
 }
 
 - (void)viewWillMoveToWindow:(NSWindow*)new_window {
@@ -879,6 +886,12 @@ namespace visage {
     view_delegate_ = [[VisageAppViewDelegate alloc] initWithWindow:this];
     view_.delegate = view_delegate_;
     view_.allow_quit = false;
+    // FILL THE CONTAINER, whatever size it turns out to be. A resize the host performs by growing
+    // its own view — rather than by calling set_size — still lands the drawable at the new size,
+    // and drawableSizeWillChange turns that into the layout change. Without it the view keeps its
+    // birth frame while the container grows, and the canvas ends up smaller than its window with
+    // blank edges down two sides.
+    view_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [parent_view_ addSubview:view_];
 
     NativeWindowLookup::instance().addWindow(this);
@@ -942,11 +955,64 @@ namespace visage {
     [window_handle_ makeFirstResponder:view_];
     [NSApp activateIgnoringOtherApps:YES];
     resetBackingScale();
+    // The window the view just landed in may be on a different display than the one its frame was
+    // laid out for — including at first embed, where the frame was sized from the main screen's
+    // scale before there was a window to ask. The scale change is followed by geometry, not left
+    // to disagree with it.
+    syncFrameToParentView();
   }
 
   void WindowMac::resetBackingScale() {
     if (window_handle_)
       setDpiScale([window_handle_ backingScaleFactor]);
+  }
+
+  void WindowMac::reparent(void* parent_handle) {
+    // Embedded windows only: reparenting is the move between host containers, and a window that
+    // owns its geometry was never in one.
+    if (parent_view_ == nullptr || parent_handle == nullptr || view_ == nullptr)
+      return;
+
+    // addSubview re-homes the view: Cocoa removes it from its current superview as part of the
+    // add, which routes through viewWillMoveToWindow (nil, then the new window) — closeWindow
+    // clears the stale window, setParentWindow records the new one and re-derives the backing
+    // scale from it. Only the frame then remains to be settled, which is what the sync below is.
+    // Nothing here touches the renderer or the swapchain; the view and its drawable survive the
+    // move, which is the property that makes reparenting safe where rebuilding is not.
+    parent_view_ = (__bridge NSView*)parent_handle;
+    [parent_view_ addSubview:view_];
+    syncFrameToParentView();
+  }
+
+  void WindowMac::detachFromParent() {
+    // Embedded windows only: a standalone window's view is not in anybody else's container, and
+    // its geometry is nobody else's to change.
+    if (view_ == nullptr || parent_view_ == nullptr)
+      return;
+
+    // The view is retained by this WindowMac (the alloc in the constructor) and by its superview;
+    // removing it from the superview leaves our own retain holding it alive, built, and out of
+    // the host's way. viewWillMoveToWindow:nil routes through closeWindow, which clears
+    // window_handle_ — setParentWindow restores it if and when the view is re-homed.
+    [view_ removeFromSuperview];
+  }
+
+  void WindowMac::syncFrameToParentView() {
+    if (parent_view_ == nullptr || window_handle_ == nullptr)
+      return;
+
+    resetBackingScale();
+    NSRect bounds = [parent_view_ bounds];
+    if (bounds.size.width <= 0.0f || bounds.size.height <= 0.0f)
+      return;
+
+    // Fill the container at whatever backing scale its window sits on, and tell the editor its
+    // native pixel size moved with it. drawableSizeWillChange arrives for the same change and
+    // forwards the same numbers through handleNativeResize, so the two roads converge instead of
+    // racing.
+    [view_ setFrame:bounds];
+    const float scale = dpiScale();
+    handleResized(std::round(bounds.size.width * scale), std::round(bounds.size.height * scale));
   }
 
   void WindowMac::windowContentsResized(int width, int height) {

@@ -74,6 +74,8 @@ namespace visage {
     void closeWindow();
     void setParentWindow(NSWindow* window);
     void resetBackingScale();
+    void reparent(void* parent_handle) override;
+    void detachFromParent() override;
 
     void* nativeHandle() const override { return (__bridge void*)view_; }
     void* initWindow() const override;
@@ -94,6 +96,8 @@ namespace visage {
     bool isPopup() const { return decoration_ == Decoration::Popup; }
 
   private:
+    void syncFrameToParentView();
+
     static bool running_event_loop_;
     NSWindow* window_handle_ = nullptr;
     NSView* parent_view_ = nullptr;

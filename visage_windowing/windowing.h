@@ -99,6 +99,13 @@ namespace visage {
     virtual void* nativeHandle() const = 0;
     virtual void windowContentsResized(int width, int height) = 0;
 
+    /// Moves a plugin-embedded window into a new parent container. Only backends with an embed
+    /// path implement it; the default is a no-op for windows that own their geometry.
+    virtual void reparent(void* parent_handle) { (void)parent_handle; }
+    /// Removes a plugin-embedded window from its parent container without destroying anything,
+    /// so a host destroying the container cannot take the window's view with it.
+    virtual void detachFromParent() { }
+
     virtual void* initWindow() const { return nullptr; }
     virtual void* globalDisplay() const { return nullptr; }
     virtual void processPluginFdEvents() { }
