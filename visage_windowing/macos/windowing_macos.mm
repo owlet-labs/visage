@@ -980,7 +980,12 @@ namespace visage {
     // Nothing here touches the renderer or the swapchain; the view and its drawable survive the
     // move, which is the property that makes reparenting safe where rebuilding is not.
     parent_view_ = (__bridge NSView*)parent_handle;
+    // The removal half of the move routes through viewWillMoveToWindow:nil -> closeWindow, which
+    // drops this window from the native lookup; the window is still alive and still renders, so
+    // it goes back in. addWindow is a map insert keyed on the view's own handle, so re-inserting
+    // an entry that was never removed simply overwrites itself.
     [parent_view_ addSubview:view_];
+    NativeWindowLookup::instance().addWindow(this);
     syncFrameToParentView();
   }
 

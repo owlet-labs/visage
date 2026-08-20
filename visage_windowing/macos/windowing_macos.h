@@ -76,6 +76,10 @@ namespace visage {
     void resetBackingScale();
     void reparent(void* parent_handle) override;
     void detachFromParent() override;
+    /// Re-derive the embedded view's frame from its container's bounds at the container's
+    /// window's backing scale, and report the new native size to the editor. Public because the
+    /// MTKView delegate calls it alongside resetBackingScale().
+    void syncFrameToParentView();
 
     void* nativeHandle() const override { return (__bridge void*)view_; }
     void* initWindow() const override;
@@ -96,8 +100,6 @@ namespace visage {
     bool isPopup() const { return decoration_ == Decoration::Popup; }
 
   private:
-    void syncFrameToParentView();
-
     static bool running_event_loop_;
     NSWindow* window_handle_ = nullptr;
     NSView* parent_view_ = nullptr;
