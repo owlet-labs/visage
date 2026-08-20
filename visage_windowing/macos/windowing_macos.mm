@@ -893,6 +893,11 @@ namespace visage {
     // blank edges down two sides.
     view_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [parent_view_ addSubview:view_];
+    // Autoresizing does not run on addSubview — only when the superview later changes size —
+    // so a birth frame of native/scale points inside a host already sized in points stays a
+    // quarter of the window until the user resizes. Occupy the container now.
+    if (parent_view_.bounds.size.width > 0.0f && parent_view_.bounds.size.height > 0.0f)
+      [view_ setFrame:parent_view_.bounds];
 
     NativeWindowLookup::instance().addWindow(this);
   }
@@ -1003,9 +1008,11 @@ namespace visage {
   }
 
   void WindowMac::syncFrameToParentView() {
-    if (parent_view_ == nullptr || window_handle_ == nullptr)
+    if (parent_view_ == nullptr)
       return;
 
+    if (window_handle_ == nullptr && parent_view_.window)
+      window_handle_ = parent_view_.window;
     resetBackingScale();
     NSRect bounds = [parent_view_ bounds];
     if (bounds.size.width <= 0.0f || bounds.size.height <= 0.0f)
@@ -1021,6 +1028,13 @@ namespace visage {
   }
 
   void WindowMac::windowContentsResized(int width, int height) {
+    if (parent_view_) {
+      // The host already sized the container. Dividing CLAP pixels by dpiScale again made a
+      // Retina embed half (or a quarter) of the window; occupy what the host actually gave.
+      [view_ setFrame:parent_view_.bounds];
+      return;
+    }
+
     NSRect frame = [window_handle_ frame];
     int x = frame.origin.x;
     int y = frame.origin.y;
@@ -1032,11 +1046,9 @@ namespace visage {
     frame.size.height = h + borders.y;
 
     [view_ setFrameSize:CGSizeMake(w, h)];
-    if (parent_view_ == nullptr) {
-      [window_handle_ setFrame:NSMakeRect(x, y, frame.size.width, frame.size.height)
-                       display:YES
-                       animate:true];
-    }
+    [window_handle_ setFrame:NSMakeRect(x, y, frame.size.width, frame.size.height)
+                     display:YES
+                     animate:true];
   }
 
   void WindowMac::show() {
