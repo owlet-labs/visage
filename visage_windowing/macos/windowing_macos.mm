@@ -357,7 +357,11 @@ namespace visage {
   self.enableSetNeedsDisplay = NO;
   self.framebufferOnly = YES;
   self.layerContentsPlacement = NSViewLayerContentsPlacementTopLeft;
-  self.preferredFramesPerSecond = 120;
+  // 60, not 120: the editor repaints the animated layer every host tick, and at 120 Hz that saturates
+  // the main thread (the draw callback runs there) so interactive controls — knobs, filter curve — lag.
+  // 60 Hz keeps ambient motion smooth and halves the render load. Revert to 120 only if a ProMotion
+  // display proves the shimmer wants the extra headroom.
+  self.preferredFramesPerSecond = 60;
 
   [self registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
   self.drag_source = [[VisageDraggingSource alloc] init];
