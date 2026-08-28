@@ -70,10 +70,35 @@ namespace visage {
       instance().faces_.erase(face);
     }
 
+    /// THE CACHE KEY FOR A FACE, WITHOUT OPENING THE FACE EVERY TIME IT IS ASKED FOR.
+    ///
+    /// This is called by `FontCache::loadPackedFont` to BUILD the key it is about to look up, so the
+    /// full `FT_New_Memory_Face` / read / `FT_Done_Face` ran on every cache HIT — per text draw, per
+    /// frame. `theme.cpp`'s `drawTracked` issues one `canvas.text()` PER CHARACTER, because visage
+    /// has no letter-spacing, so a twenty-character label opened twenty faces a frame.
+    ///
+    /// MEASURED IN A REAL EDITOR: 1,028 face opens in a single 60-second `guihost` run under
+    /// FEATHERS_REDUCED_MOTION, which is the QUIET case — the animation is off and the editor is
+    /// doing nothing but existing.
+    ///
+    /// KEYED ON (POINTER, SIZE), and that is safe for the reason `FontCache` already relies on:
+    /// `type_face_data_lookup_` keys on the data pointer and owns the bytes behind it, so a pointer
+    /// that compares equal IS the same face for as long as anyone can ask about it. A font's family
+    /// and style cannot change under a stable pointer.
+    ///
+    /// MAIN THREAD ONLY, which is not a new constraint: the one caller feeds
+    /// `createOrLoadPackedFont`, which already asserts it.
     static std::string idForFont(const unsigned char* data, int data_size) {
+      static std::map<std::pair<const unsigned char*, int>, std::string> ids;
+      const auto key = std::make_pair(data, data_size);
+      const auto it = ids.find(key);
+      if (it != ids.end()) {
+        return it->second;
+      }
       FT_Face face = newMemoryFace(data, data_size);
       std::string id = std::string(face->family_name) + "-" + std::string(face->style_name);
       doneFace(face);
+      ids[key] = id;
       return id;
     }
 
