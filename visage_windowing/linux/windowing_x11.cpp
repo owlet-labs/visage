@@ -1116,6 +1116,39 @@ namespace visage {
           drawCallback(microseconds / 1000000.0);
         }
       }
+      // THE WINDOW MANAGER'S CLOSE, WHICH ONLY THE STANDALONE LOOP USED TO HEAR. `show()` registers
+      // WM_DELETE_WINDOW on every window it maps, plugin windows included, so a title-bar close DOES
+      // arrive as a ClientMessage — and nothing in the plugin pump looked for it. `processEvent`'s
+      // only ClientMessage handling is the drag-and-drop atoms, and `runEventLoop`'s delete branch
+      // is in a loop a plugin never runs. So the message was received and dropped: a window opened
+      // by a plugin had a close button that did nothing.
+      //
+      // BEFORE THE DISPATCH BELOW, AND NOT INSIDE `handlePluginFdEvent`, because the window being
+      // closed may be the one doing the pumping. A detached panel is "another window" while the
+      // editor pumps, and its own pump is what runs when the editor has none — the same message must
+      // be heard on both roads, and only this point sees both.
+      //
+      // `handleCloseRequested()` MAY REFUSE: it returns the event handler's answer, and a handler
+      // that declines — an unsaved-changes prompt, a view that wants to tear itself down first — is
+      // a window that stays open. Only a true answer removes and hides.
+      else if (event.type == DestroyNotify ||
+               (event.type == ClientMessage && event.xclient.data.l[0] == x11_->deleteMessage())) {
+        // DELIVER, AND DO NOT THEN TOUCH THE WINDOW. `runEventLoop` follows a true answer with
+        // `removeWindow` + `hide`, which is safe there because the handler is the application's own.
+        // Here the handler belongs to a plugin, and a plugin's close handler routinely tears the
+        // window down as part of answering — so anything this function does afterwards runs on
+        // storage the handler may already have released. MEASURED: doing it the standalone way
+        // segfaulted a case that had passed fifteen assertions to reach it.
+        //
+        // That is the same defect `ApplicationWindow::close()` carries — invoke the handler, then go
+        // on using `window_` — and repeating it here would have been a second instance of a bug this
+        // fork already knows about. Delivery is what was missing; teardown already has an owner.
+        WindowX11* target = NativeWindowLookup::instance().findWindow(event.xany.window);
+        if (target == nullptr && event.xany.window == window_handle_)
+          target = this;
+        if (target)
+          target->handleCloseRequested();
+      }
       else if (event.xany.window == window_handle_ || event.xany.window == parent_handle_)
         processEvent(event);
       else if (WindowX11* other = NativeWindowLookup::instance().findWindow(event.xany.window))
@@ -1136,6 +1169,29 @@ namespace visage {
     if (event.type == ClientMessage && event.xclient.message_type == x11_->timerEvent()) {
       long long microseconds = time::microseconds() - start_draw_microseconds_;
       drawCallback(microseconds / 1000000.0);
+      return;
+    }
+    // THE WINDOW MANAGER'S CLOSE, WHICH ONLY THE STANDALONE LOOP USED TO HEAR. `show()` registers
+    // WM_DELETE_WINDOW on every window it maps, plugin windows included, so a title-bar close DOES
+    // arrive here as a ClientMessage — and `processEvent` has no branch for it, because its only
+    // ClientMessage handling is the drag-and-drop atoms. So the message was received and dropped:
+    // a window opened by a plugin had a close button that did nothing, and the only way to dismiss
+    // it was whatever the plugin's own UI offered.
+    //
+    // THE SAME TWO STEPS `runEventLoop` TAKES, and deliberately not more. It additionally clears
+    // `running` when the last window goes, which is the standalone application deciding to exit —
+    // meaningless here, where the host owns the loop and our editor may still be open.
+    //
+    // `handleCloseRequested()` MAY REFUSE. It returns the event handler's answer, and a handler that
+    // returns false is a window that declines to close — an unsaved-changes prompt, or a view that
+    // wants to tear itself down first. Only a true answer removes and hides, which is why this is a
+    // branch rather than an unconditional teardown.
+    if (event.type == DestroyNotify ||
+        (event.type == ClientMessage && event.xclient.data.l[0] == x11_->deleteMessage())) {
+      if (handleCloseRequested()) {
+        NativeWindowLookup::instance().removeWindow(this);
+        hide();
+      }
       return;
     }
     processEvent(event);
