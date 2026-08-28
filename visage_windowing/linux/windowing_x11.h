@@ -214,6 +214,12 @@ namespace visage {
 
     void runEventLoop() override;
     void processPluginFdEvents() override;
+
+    /// Handle one event that belongs to THIS window, when it was drained by another window's plugin
+    /// pump. See processPluginFdEvents: the X11 connection is process-global, so whichever window is
+    /// pumping takes every queued event off the shared display, including other windows'.
+    void handlePluginFdEvent(XEvent& event);
+
     void processMessageWindowEvent(XEvent& event);
     void processEvent(XEvent& event);
 

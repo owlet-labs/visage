@@ -155,3 +155,15 @@ endif ()
 if (VISAGE_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif ()
+
+# A focused runtime check for the plugin pump's multi-window dispatch. Linux only: the defect is
+# X11's, because only that backend drains a shared queue by hand.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+  add_executable(visage_plugin_fd_multi_window tests/plugin_fd_multi_window.cpp)
+  target_link_libraries(visage_plugin_fd_multi_window PRIVATE visage)
+  # The backend header includes its siblings unqualified, so its own directory has to be on the path
+  # as well as the repo root.
+  target_include_directories(visage_plugin_fd_multi_window PRIVATE
+                             ${CMAKE_CURRENT_SOURCE_DIR}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/visage_windowing)
+endif()

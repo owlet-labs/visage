@@ -1088,6 +1088,15 @@ namespace visage {
   }
 
   void WindowX11::processPluginFdEvents() {
+    // THE DISPLAY IS PROCESS-GLOBAL, SO THIS DRAINS EVERY WINDOW'S EVENTS, NOT ONLY THIS ONE'S.
+    // X11Connection::globalInstance() hands out one connection for the whole process, so XNextEvent
+    // here returns whatever is queued for ANY visage window.
+    //
+    // BEFORE THE LAST BRANCH BELOW EXISTED, THOSE EVENTS WERE READ OFF THE QUEUE AND DROPPED. A
+    // plugin that opened a second window — a detached panel beside an embedded editor — would find it
+    // drew once and then went deaf: no clicks, no drags, no close button, because the editor's pump
+    // consumed its events and matched none of them. The standalone loop in runEventLoop() has always
+    // dispatched by lookup; this is the same fallback, in the pump a plugin actually calls.
     bool timer_fired = false;
     XEvent event;
     while (XPending(x11_->display())) {
@@ -1109,7 +1118,27 @@ namespace visage {
       }
       else if (event.xany.window == window_handle_ || event.xany.window == parent_handle_)
         processEvent(event);
+      else if (WindowX11* other = NativeWindowLookup::instance().findWindow(event.xany.window))
+        other->handlePluginFdEvent(event);
     }
+  }
+
+  void WindowX11::handlePluginFdEvent(XEvent& event) {
+    // A TIMER MESSAGE IS A DRAW REQUEST, and it has to be recognised here rather than passed to
+    // processEvent, which does not know about it. Without this branch another window would receive
+    // its input and never repaint.
+    //
+    // NO PER-PUMP DEDUPE, unlike the pumping window's own timer branch above. That latch exists to
+    // collapse several queued timer messages into one draw for the window doing the pumping, and
+    // keeping the same guarantee for every other window would need per-window state threaded through
+    // this drain. The cost of leaving it out is at worst an extra draw when a window has more than
+    // one timer message queued in a single pump; the behaviour it replaces was no draw at all.
+    if (event.type == ClientMessage && event.xclient.message_type == x11_->timerEvent()) {
+      long long microseconds = time::microseconds() - start_draw_microseconds_;
+      drawCallback(microseconds / 1000000.0);
+      return;
+    }
+    processEvent(event);
   }
 
   void WindowX11::processMessageWindowEvent(XEvent& event) {
