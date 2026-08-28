@@ -109,6 +109,19 @@ namespace visage {
     virtual void* initWindow() const { return nullptr; }
     virtual void* globalDisplay() const { return nullptr; }
     virtual void processPluginFdEvents() { }
+
+    /// START THIS WINDOW'S OWN DRAW TIMER, for a top-level window a PLUGIN owns.
+    ///
+    /// A window created with a parent handle starts a timer thread in its constructor, because a
+    /// plugin has no event loop of ours to draw it. A window created WITHOUT one does not, because in
+    /// a standalone application `runEventLoop` is the thing that draws it — and that loop never runs
+    /// in a plugin. So a plugin that opens a second, detached window gets one that is never asked to
+    /// draw at all: it maps, and then shows whatever was on the screen behind it.
+    ///
+    /// The host cannot know to call this and the constructor cannot tell the two cases apart, so it
+    /// is the plugin's to call once it has decided to own a top-level window. Calling it twice, or on
+    /// a window that already has a timer, does nothing.
+    virtual void startPluginDrawTimer() { }
     virtual int posixFd() const { return 0; }
 
     virtual void show() = 0;

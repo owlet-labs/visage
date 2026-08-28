@@ -544,6 +544,30 @@ namespace visage {
 
   WindowX11* WindowX11::last_active_window_ = nullptr;
 
+  static void threadTimerCallback(WindowX11* window);
+
+  void WindowX11::startPluginDrawTimer() {
+    // ONLY THE EMBEDDED CONSTRUCTOR STARTS THIS, AND ONLY A PLUGIN KNOWS IT NEEDS IT.
+    //
+    // `WindowX11(width, height, parent_handle)` — the embedded editor — starts a timer thread,
+    // because a plugin has no loop of ours to draw it. `WindowX11(x, y, w, h, decoration)` — a
+    // top-level window — does not, because in a standalone application `runEventLoop` draws it. Open
+    // a top-level window from inside a PLUGIN and neither is true: nothing ever asks it to draw, so
+    // it maps and then shows whatever was on the screen behind it.
+    //
+    // MEASURED IN A HOST, not inferred: a detached panel froze the pixels behind it and never drew
+    // its own contents.
+    //
+    // IDEMPOTENT, because the caller cannot easily know whether a window already has a timer, and a
+    // second thread posting to the same window would double its frame rate rather than fail loudly.
+    if (timer_thread_running_.load()) {
+      return;
+    }
+    timer_thread_running_ = true;
+    start_draw_microseconds_ = time::microseconds();
+    timer_thread_ = std::make_unique<std::thread>(threadTimerCallback, this);
+  }
+
   WindowX11::WindowX11(int x, int y, int width, int height, Decoration decoration) :
       Window(width, height), decoration_(decoration) {
     x11_ = X11Connection::globalInstance();
@@ -1146,8 +1170,23 @@ namespace visage {
         WindowX11* target = NativeWindowLookup::instance().findWindow(event.xany.window);
         if (target == nullptr && event.xany.window == window_handle_)
           target = this;
+        // A WINDOW CAN BE THE ONE PUMPING AND THE ONE CLOSING, AND THEN `this` DIES HERE.
+        //
+        // A plugin's close handler routinely destroys the window as part of answering — ours does,
+        // through `ApplicationWindow::close()`, which releases the `Window` and takes this object
+        // with it. If that window is also the one draining the queue, every member touched after the
+        // handler returns — `x11_`, `window_handle_`, the loop's own `XPending(x11_->display())` —
+        // is a read through freed storage.
+        //
+        // MEASURED: a case that closes a popout by sending it the window manager's message died on
+        // SIGSEGV once the popout began pumping its own connection. The whole-suite run PASSED and
+        // one-process-per-case did not, which is the ordering hiding it rather than the bug being
+        // rare.
+        const bool closing_self = (target == this);
         if (target)
           target->handleCloseRequested();
+        if (closing_self)
+          return;
       }
       else if (event.xany.window == window_handle_ || event.xany.window == parent_handle_)
         processEvent(event);
