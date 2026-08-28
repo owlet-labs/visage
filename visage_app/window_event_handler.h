@@ -70,6 +70,7 @@ namespace visage {
     void handleFocusLost() override;
     void handleFocusGained() override;
     void handleResized(int width, int height) override;
+    void handleExposed(int x, int y, int width, int height) override;
     void handleAdjustResize(int* width, int* height, bool horizontal_resize, bool vertical_resize) override;
 
     void handleWindowShown() override;

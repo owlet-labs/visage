@@ -21,6 +21,7 @@
 
 #include "window_event_handler.h"
 
+#include "visage_graphics/region.h"
 #include "visage_ui/frame.h"
 
 #include <regex>
@@ -83,6 +84,22 @@ namespace visage {
     VISAGE_ASSERT(width >= 0 && height >= 0);
     content_frame_->setNativeBounds(0, 0, width, height);
     content_frame_->redraw();
+  }
+
+  /// A RECTANGLE OF THIS WINDOW WAS TRASHED BY SOMETHING ELSE, AND ONLY THE PLATFORM KNOWS.
+  ///
+  /// THE DAMAGE ROAD RATHER THAN THE DRAW ROAD, and the difference is why this is four lines and not
+  /// a `redrawAll`. Nothing about the frame tree changed — every frame's retained shapes are exactly
+  /// what they were a moment ago — so re-running anybody's `draw()` would rebuild shapes that are
+  /// already correct. What is stale is the SURFACE. Invalidating the content frame's region over the
+  /// exposed rectangle marks the layer dirty there and the next submit re-rasterises precisely that
+  /// rectangle from the shapes already held, which is what an expose means and all it means.
+  ///
+  /// NATIVE PIXELS, unconverted: the platform reports the rectangle in the window's own pixels and a
+  /// `Region` is measured in the same ones. A dpi-scaled conversion here would repaint the wrong
+  /// rectangle on exactly the machines that have a scale.
+  void WindowEventHandler::handleExposed(int x, int y, int width, int height) {
+    content_frame_->region()->invalidateRect({ x, y, width, height });
   }
 
   void WindowEventHandler::handleAdjustResize(int* width, int* height, bool horizontal_resize,

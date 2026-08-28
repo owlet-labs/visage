@@ -1274,6 +1274,34 @@ namespace visage {
 
   void WindowX11::processEvent(XEvent& event) {
     switch (event.type) {
+    /// AN EXPOSE, WHICH THIS FUNCTION HAS NEVER HANDLED — and `kEventMask` has always contained
+    /// `ExposureMask`, so X has always been sending them and we have always been dropping them.
+    ///
+    /// THE ONLY EXPOSE HANDLER IN THIS FILE WAS IN `runEventLoop`, WHICH A PLUGIN NEVER RUNS. That
+    /// is the whole defect: an embedded editor selects the events, receives them, and discards them
+    /// in `processPluginFdEvents` and `handlePluginFdEvent` alike, because neither had a branch and
+    /// this switch had eleven cases and not this one. Put that beside `createWindow`, which sets
+    /// `background_pixmap = None` so X paints nothing into an exposed region, and nothing clears the
+    /// area and nothing asks for it to be repainted. It keeps the other window's pixels for as long
+    /// as the editor lives.
+    ///
+    /// MEASURED ON :1, guihost held open with a child window mapped over the editor's top band and
+    /// then destroyed — an expose X is obliged to send, compositor or not, because child windows
+    /// are not separately redirected. Occluder visible to the camera at 37440 px, three runs of
+    /// three: **37440 magenta pixels left behind, bbox 0,10..935,49, permanently.**
+    ///
+    /// `FEATHERS_FULL_REDRAW` HID IT COMPLETELY, which is why nobody found it: with that
+    /// intervention every layer is invalidated every frame, so the next present overwrites the
+    /// damage and the same experiment comes back 0 px in every arm. The flag is a stopgap for a
+    /// different fault and it is not a reason to leave this one in place — turn it off, or fall a
+    /// few frames behind the host's idle callback, and the region is kept.
+    ///
+    /// COUNTED, NOT COALESCED: X sends one event per damaged rectangle with `count` remaining, and
+    /// invalidating each one is both correct and cheaper than invalidating the union.
+    case Expose: {
+      handleExposed(event.xexpose.x, event.xexpose.y, event.xexpose.width, event.xexpose.height);
+      break;
+    }
     case ClientMessage: {
       X11Connection::DisplayLock lock(x11_);
       if (event.xclient.message_type == x11_->dndEnter()) {

@@ -76,6 +76,16 @@ namespace visage {
                                       bool vertical_resize) { }
       virtual void handleResized(int width, int height) = 0;
 
+      /// PART OF OUR WINDOW HAS BEEN TRASHED BY SOMETHING ELSE AND MUST BE REPAINTED.
+      ///
+      /// NOT PURE, unlike its neighbours, and that is the point rather than an omission: a backend
+      /// that has no such event, or a handler that repaints unconditionally, is correct doing
+      /// nothing here. Only the platforms that can lose a rectangle need to say so.
+      ///
+      /// The rectangle is in the window's own pixels — native, not logical — because that is what
+      /// the platform reports and what a Region is measured in.
+      virtual void handleExposed(int x, int y, int width, int height) { }
+
       virtual void handleWindowShown() = 0;
       virtual void handleWindowHidden() = 0;
       virtual bool handleCloseRequested() = 0;
@@ -187,6 +197,7 @@ namespace visage {
     void handleFocusLost();
     void handleFocusGained();
     void handleResized(int width, int height);
+    void handleExposed(int x, int y, int width, int height);
     void handleAdjustResize(int* width, int* height, bool horizontal_resize, bool vertical_resize);
 
     void handleWindowShown();
