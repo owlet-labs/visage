@@ -84,6 +84,36 @@ namespace visage {
     };
 
     X11Connection() {
+      // XLockDisplay DOES NOTHING UNLESS XInitThreads() HAS BEEN CALLED, so every DisplayLock in
+      // this file — there are 27 — has been inert, and the code has looked locked since it was
+      // written.
+      //
+      // MEASURED rather than read off a man page: a probe whose WRITER takes XLockDisplay exactly as
+      // `threadTimerCallback` does, and whose READER takes nothing exactly as
+      // `processPluginFdEvents` does, dies on
+      //     xcb_io.c: poll_for_event: Assertion `!xcb_xlib_threads_sequence_lost' failed
+      // without this call, and drains 200,000 events without complaint with it. That same probe is
+      // what says the fix is SUFFICIENT as well as necessary: its reader is still unlocked in the
+      // surviving run, which is the configuration this backend actually ships.
+      //
+      // WHY IT BITES A PLUGIN AND NOT A STANDALONE APP. `startPluginDrawTimer` runs a THREAD that
+      // posts a ClientMessage per frame, because a plugin has no loop of ours to draw it, while
+      // `runEventLoop` draws a standalone window from the same thread that reads its events. So the
+      // two-thread race exists only in a plugin — and it DOUBLES when a plugin opens a second
+      // window: a top-level popout takes globalInstance() and starts its own timer thread, and the
+      // editor's pump then reads that same connection. Tony's plugin host froze and was killed
+      // three milliseconds after a popout's textures were created, with the crash handler installed
+      // and silent — which rules out every signal it catches, and is what a torn X connection looks
+      // like from outside.
+      //
+      // FIRST, AND BEFORE XOpenDisplay. XInitThreads installs the locking functions that a later
+      // XOpenDisplay attaches to its Display, so it has to precede the first one. A function-local
+      // static runs once and thread-safely, and every display in this backend is opened here.
+      //
+      // WHAT IT CANNOT FIX, said plainly: a display the HOST opened before loading us does not get
+      // these locks. Ours do, and ours are the ones our threads touch.
+      static const int threads_initialised = XInitThreads();
+      (void)threads_initialised;
       display_ = XOpenDisplay(nullptr);
       XSetErrorHandler(xErrorHandler);
       if (display_ == nullptr)
