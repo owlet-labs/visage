@@ -19,6 +19,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include <cstring>
 #include "embedded/fonts.h"
 #include "emoji.h"
 
@@ -37,6 +38,17 @@ namespace visage {
     void drawIntoBuffer(char32_t emoji, int font_size, int write_width, unsigned int* dest,
                         int dest_width, int dest_x, int dest_y) {
       FT_UInt glyph_index = FT_Get_Char_Index(face_, emoji);
+      // NOT IN THE EMOJI FONT AT ALL. Index 0 is .notdef, and rendering it here is wrong twice over:
+      // it draws a tofu box where the caller asked for a character, and — because .notdef is an
+      // ordinary outline rather than a colour bitmap — it produces an 8-bit GREY bitmap that the copy
+      // below used to read as 32-bit BGRA, four bytes at a time, off the end of the allocation.
+      //
+      // FOUND BY AddressSanitizer, 2026-08-31: `heap-buffer-overflow ... in
+      // EmojiRasterizerImpl::drawIntoBuffer`, an 18-byte FreeType bitmap read past its end. The
+      // trigger was an ordinary arrow (U+2192) in a UI label: visage falls back to this rasterizer for
+      // any character the main font lacks, so ANY non-ASCII text could reach here.
+      if (glyph_index == 0)
+        return;
       FT_Set_Pixel_Sizes(face_, 0, font_size);
       FT_Int32 flags = FT_LOAD_TARGET_NORMAL;
       if (FT_HAS_COLOR(face_))
@@ -50,15 +62,30 @@ namespace visage {
       if (FT_Render_Glyph(face_->glyph, FT_RENDER_MODE_NORMAL))
         return;
 
-      int height = face_->glyph->bitmap.rows;
-      int width = face_->glyph->bitmap.width;
-      unsigned int* source = (unsigned int*)face_->glyph->bitmap.buffer;
+      const FT_Bitmap& bitmap = face_->glyph->bitmap;
+      // ONLY BGRA IS COPYABLE AS `unsigned int`. A glyph rendered to 8-bit grey has a quarter of the
+      // bytes this loop would read, and there is no correct colour to invent for it here — the caller
+      // wants a colour emoji, and a grey outline is the font telling us it has none. Skipping draws
+      // nothing, which is visibly wrong in a way somebody can report; reading it drew garbage from
+      // whatever followed the allocation, which is not.
+      if (bitmap.pixel_mode != FT_PIXEL_MODE_BGRA)
+        return;
+
+      int height = bitmap.rows;
+      int width = bitmap.width;
+      // PITCH, NOT WIDTH. FreeType pads rows and MAY hand back a negative pitch for a bottom-up
+      // bitmap; `y * width` happened to agree only while both were true and neither is guaranteed.
+      const unsigned char* rows = bitmap.buffer;
+      const int pitch = bitmap.pitch;
       int offset_x = std::max(0, write_width - width) / 2;
       int offset_y = std::max(0, write_width - height) / 2;
       for (int y = 0; y < height && y < write_width; ++y) {
+        const unsigned char* row = rows + static_cast<ptrdiff_t>(y) * pitch;
         for (int x = 0; x < width && x < write_width; ++x) {
           int i = (dest_y + y + offset_y) * dest_width + dest_x + x + offset_x;
-          dest[i] = source[y * width + x];
+          unsigned int pixel = 0;
+          std::memcpy(&pixel, row + static_cast<ptrdiff_t>(x) * 4, sizeof(pixel));
+          dest[i] = pixel;
         }
       }
     }
