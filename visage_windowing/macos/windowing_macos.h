@@ -70,6 +70,10 @@ namespace visage {
 
     ~WindowMac() override;
 
+    // [NSEvent modifierFlags] — the class-level read of the modifiers held now, translated the way
+    // the event road translates a single event's flags. See Window::modifierState.
+    int modifierState() const override;
+
     void createWindow();
     void closeWindow();
     void setParentWindow(NSWindow* window);

@@ -292,7 +292,13 @@ namespace visage {
     IPoint retrieveWindowDimensions();
     void passEventToParent(XEvent& event);
     int mouseButtonState() const;
-    int modifierState() const;
+
+  public:
+    // XQueryPointer's modifier mask, translated. Public and virtual since it became pollable — see
+    // Window::modifierState; it was private and event-road-only before.
+    int modifierState() const override;
+
+  private:
 
     ::Window windowUnderCursor(::Window inside);
     ::Window windowUnderCursor();

@@ -58,6 +58,10 @@ namespace visage {
     WindowWin32(int x, int y, int width, int height, Decoration decoration);
     WindowWin32(int width, int height, void* parent_handle);
 
+    // GetKeyState over the modifier virtual keys — the same read the event road stamps events
+    // with, exposed for polling. See Window::modifierState.
+    int modifierState() const override;
+
     ~WindowWin32() override;
 
     void finishWindowSetup();

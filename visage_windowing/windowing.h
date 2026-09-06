@@ -174,6 +174,12 @@ namespace visage {
     void setMouseRelativeMode(bool relative) { mouse_relative_mode_ = relative; }
     virtual bool mouseRelativeMode() const { return mouse_relative_mode_; }
 
+    // The keyboard modifiers held RIGHT NOW, as a kModifier* mask, read from the platform rather
+    // than from an event — so a frame that wants to follow a held modifier with the pointer still
+    // can poll this once a frame. Each platform already computed this to stamp its mouse events;
+    // this only exposes that computation. Zero on a platform with no implementation.
+    virtual int modifierState() const { return 0; }
+
     int clientWidth() const { return client_width_; }
     int clientHeight() const { return client_height_; }
     void setEventHandler(EventHandler* event_handler) { event_handler_ = event_handler; }

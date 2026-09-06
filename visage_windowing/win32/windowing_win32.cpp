@@ -1573,6 +1573,10 @@ namespace visage {
     PostMessage(window_handle_, WM_CLOSE, 0, 0);
   }
 
+  int WindowWin32::modifierState() const {
+    return keyboardModifiers();
+  }
+
   bool WindowWin32::isShowing() const {
     return IsWindowVisible(window_handle_);
   }
