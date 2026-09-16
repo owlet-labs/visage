@@ -395,12 +395,25 @@ namespace visage {
 
     if (screenshot_requested_ && bgfx::isValid(frame_buffer_data_->read_back_handle)) {
       screenshot_requested_ = false;
-      bgfx::blit(submit_pass, frame_buffer_data_->read_back_handle, 0, 0,
+      // ON THE VIEW AFTER THIS LAYER'S DRAWS, NOT THE SAME ONE. bgfx executes a view's blits BEFORE
+      // that view's draw calls, so a blit on `submit_pass` copied the frame buffer as it stood
+      // before this frame drew into it: every headless screenshot was the PREVIOUS frame's
+      // composite, and when the previous frame had never been drawn (a fresh buffer) it was a
+      // frame of zeros. MEASURED in Feathers' widget suite: draw blue, submit, draw green, take a
+      // screenshot — blue, four runs of four; a second screenshot with nothing new drawn came back
+      // green, blue, blue, black. The view after the draws reads this frame; the pass count below
+      // steps over it.
+      const int read_back_pass = submit_pass + 1;
+      bgfx::blit(read_back_pass, frame_buffer_data_->read_back_handle, 0, 0,
                  bgfx::getTexture(frame_buffer_data_->handle), 0, 0, width_, height_);
+      submit_pass = read_back_pass;
 
       screenshot_.setDimensions(width_, height_);
-      bgfx::readTexture(frame_buffer_data_->read_back_handle, screenshot_.data());
-      bgfx::frame();
+      // THE CONTRACT, KEPT: readTexture returns the frame number at which the pixels will be in the
+      // buffer, and this used to discard it and advance exactly one frame. The number is kept and
+      // Canvas::takeScreenshot advances frames until it is reached.
+      screenshot_ready_frame_ = bgfx::readTexture(frame_buffer_data_->read_back_handle, screenshot_.data());
+      last_frame_ = bgfx::frame();
     }
 
     submit_pass = submit_pass + 1;

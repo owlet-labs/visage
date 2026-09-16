@@ -207,6 +207,14 @@ namespace visage {
     composite_layer_.requestScreenshot();
     default_region_.invalidate();
     submit();
+    // WAIT FOR THE READ-BACK'S OWN FRAME. bgfx::readTexture names the frame at which the pixels will
+    // be in the buffer; submit() above has advanced one or two frames past the request, which is
+    // usually enough and under load was not (a black frame read as "nothing drawn"). bgfx::frame()
+    // returns the current frame number, so this is the contract's own wait, not a poll of the pixels:
+    // at most a couple of empty frames, and only on this road — nothing in an ordinary render pays it.
+    uint32_t frame = composite_layer_.lastFrame();
+    while (frame < composite_layer_.screenshotReadyFrame())
+      frame = bgfx::frame();
     return composite_layer_.screenshot();
   }
 

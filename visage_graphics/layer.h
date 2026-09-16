@@ -126,6 +126,12 @@ namespace visage {
 
     void requestScreenshot();
     const Screenshot& screenshot() const;
+    // THE FRAME THE READ-BACK LANDS ON, as bgfx::readTexture reports it ("frame number when the result
+    // will be available"), and the frame number this layer's own bgfx::frame() call last returned. A
+    // headless screenshot is not readable until the current frame has reached the first; Canvas::
+    // takeScreenshot advances frames until it has. Both are 0 until a screenshot has been requested.
+    uint32_t screenshotReadyFrame() const { return screenshot_ready_frame_; }
+    uint32_t lastFrame() const { return last_frame_; }
     void pairToWindow(void* window_handle, int width, int height) {
       window_handle_ = window_handle;
       setDimensions(width, height);
@@ -163,6 +169,8 @@ namespace visage {
     void* window_handle_ = nullptr;
     bool headless_render_ = false;
     bool screenshot_requested_ = false;
+    uint32_t screenshot_ready_frame_ = 0;
+    uint32_t last_frame_ = 0;
     Screenshot screenshot_;
 
     GradientAtlas* gradient_atlas_ = nullptr;
