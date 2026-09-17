@@ -163,6 +163,17 @@ namespace visage {
     void setDpiScale(float scale) { dpi_scale_ = scale; }
     float dpiScale() const { return dpi_scale_; }
 
+    // A MULTIPLIER ON TOP OF THE DPI SCALE, for content that should draw larger than the display asks.
+    // On macOS the dpi scale is the backing scale factor — device pixels per point — and the platform
+    // code uses it for geometry (the drawable size, the layer's contentsScale, mouse points) and resets
+    // it whenever the view changes window or display, so a UI scale written INTO it was overwritten and
+    // the window grew while the content did not. The editor, its canvas and its event coordinates read
+    // `drawScale()` instead, so a content scale can ride on top without the platform code knowing.
+    // Default 1: every backend that never sets it behaves exactly as before.
+    void setContentScale(float scale) { content_scale_ = scale; }
+    float contentScale() const { return content_scale_; }
+    float drawScale() const { return dpi_scale_ * content_scale_; }
+
     IPoint convertToNative(const Point& logical_point) const {
       return { static_cast<int>(std::round(logical_point.x * dpi_scale_)),
                static_cast<int>(std::round(logical_point.y * dpi_scale_)) };
@@ -237,6 +248,7 @@ namespace visage {
 
     std::function<void(double)> draw_callback_ = nullptr;
     float dpi_scale_ = 1.0f;
+    float content_scale_ = 1.0f;
     bool visible_ = true;
     bool mouse_relative_mode_ = false;
     int client_width_ = 0;

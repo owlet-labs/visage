@@ -34,7 +34,7 @@ namespace visage {
 
   void TopLevelFrame::resized() {
     if (editor_->window())
-      setDpiScale(editor_->window()->dpiScale());
+      setDpiScale(editor_->window()->drawScale());
 
     editor_->setNativeBounds(nativeLocalBounds());
     editor_->setCanvasDetails();
@@ -108,7 +108,7 @@ namespace visage {
     canvas_->setDimensions(nativeWidth(), nativeHeight());
 
     if (window_)
-      canvas_->setDpiScale(window_->dpiScale());
+      canvas_->setDpiScale(window_->drawScale());
   }
 
   void ApplicationEditor::addToWindow(Window* window) {
@@ -116,7 +116,7 @@ namespace visage {
 
     Renderer::instance().initialize(window_->initWindow(), window->globalDisplay());
     canvas_->pairToWindow(window_->nativeHandle(), window->clientWidth(), window->clientHeight());
-    top_level_->setDpiScale(window_->dpiScale());
+    top_level_->setDpiScale(window_->drawScale());
     top_level_->setNativeBounds(0, 0, window->clientWidth(), window->clientHeight());
     window_->setFixedAspectRatio(fixed_aspect_ratio_ != 0.0f);
 
