@@ -421,13 +421,16 @@ namespace visage {
       return;
 
     setUniform<Uniforms::kRadialGradient>(quads.radial_gradient ? 1.0f : 0.0f);
-    setBlendMode(BlendMode::Alpha);
+    Shader* shader = batches[0].shapes->front().shader;
+    // THE SHADER'S OWN BLEND MODE, which it was constructed with and which this ignored for Alpha.
+    setBlendMode(shader->state());
     setTimeUniform(layer.time());
     setUniformDimensions(layer.width(), layer.height());
     setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
     setColorMult(layer.hdr());
     setOriginFlipUniform(layer.bottomLeftOrigin());
-    Shader* shader = batches[0].shapes->front().shader;
+    for (const auto& uniform : shader->uniforms())
+      bgfx::setUniform(UniformCache::uniformHandle(uniform.first.c_str()), uniform.second.data());
     bgfx::submit(submit_pass,
                  ProgramCache::programHandle(shader->vertexShader(), shader->fragmentShader()));
   }
