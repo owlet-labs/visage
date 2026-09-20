@@ -56,11 +56,25 @@ namespace visage {
       return &connection;
     }
 
+    // A NULL Display IS A VALUE THIS CLASS CAN HOLD, SO EVERY USE OF IT HAS TO SAY SO. The
+    // constructor below keeps whatever `XOpenDisplay` returned and returns early when that is null —
+    // and then `display()` hands the null to callers who dereference it. Xlib's `XLockDisplay` is the
+    // FIRST one on the road out of `ApplicationWindow::setWindowDimensions` (through
+    // `defaultDpiScale` -> `activeMonitorInfo` -> `monitorInfoForPosition`), so this two-line guard is
+    // where a whole class of crash lands. MEASURED under ASan, Feathers backlog GA (2026-09-19): SEGV
+    // reading through a null `Display*` here, both with DISPLAY unset AND on a live display whose
+    // server reset the connection (`errno 104`) between one `XOpenDisplay` and the next.
     class DisplayLock {
     public:
-      explicit DisplayLock(const X11Connection* x11) : x11_(x11) { XLockDisplay(x11_->display()); }
+      explicit DisplayLock(const X11Connection* x11) : x11_(x11) {
+        if (x11_->display())
+          XLockDisplay(x11_->display());
+      }
 
-      ~DisplayLock() { XUnlockDisplay(x11_->display()); }
+      ~DisplayLock() {
+        if (x11_->display())
+          XUnlockDisplay(x11_->display());
+      }
 
     private:
       const X11Connection* x11_;
@@ -152,7 +166,13 @@ namespace visage {
 
     X11Connection(const X11Connection& copy) = delete;
 
-    ~X11Connection() { XCloseDisplay(display_); }
+    // Guarded for the same reason as DisplayLock: the constructor's early return leaves `display_`
+    // null, and this is a function-local static whose destructor runs at exit — so a process that
+    // could not reach an X server used to crash on its way out as well as on its way in.
+    ~X11Connection() {
+      if (display_)
+        XCloseDisplay(display_);
+    }
 
     ::Display* display() const { return display_; }
     ::Window rootWindow() const { return root_; }

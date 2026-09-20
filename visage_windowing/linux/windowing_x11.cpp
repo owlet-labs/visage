@@ -264,6 +264,10 @@ namespace visage {
 
     X11Connection* x11 = X11Connection::globalInstance();
     X11Connection::DisplayLock lock(x11);
+    // Same guard as monitorInfoForPosition below, and for the same reason: XQueryPointer
+    // dereferences the Display it is given (Feathers backlog GA).
+    if (x11->display() == nullptr)
+      return { 0, 0 };
 
     ::Window root_return, child_return;
     int root_x = 0, root_y = 0;
@@ -295,6 +299,15 @@ namespace visage {
     X11Connection* x11 = X11Connection::globalInstance();
     X11Connection::DisplayLock lock(x11);
     Display* display = x11->display();
+
+    // NO DISPLAY, NO MONITOR — a default rather than a dereference (Feathers backlog GA). This is
+    // the function `defaultDpiScale()` and `computeWindowBounds()` reach through
+    // `activeMonitorInfo()`, and both run BEFORE any window exists, so it is the first place a
+    // process that could not open an X connection arrives. `DefaultScreen(display)` below is a macro
+    // that reads through the pointer; with a null one it is a segfault with no diagnostic. The
+    // caller's job is still to refuse to open a window — this only makes the refusal reachable.
+    if (display == nullptr)
+      return MonitorInfo();
 
     int default_screen = DefaultScreen(display);
     IBounds default_bounds(0, 0, DisplayWidth(display, default_screen),
