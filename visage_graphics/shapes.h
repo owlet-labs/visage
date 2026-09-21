@@ -722,14 +722,53 @@ namespace visage {
     Direction direction = Direction::Up;
   };
 
+  /// HOW MANY PER-QUAD FLOATS A SHADER QUAD MAY CARRY — see `ShaderWrapper`.
+  static constexpr int kShaderQuadValues = 4;
+
   struct ShaderWrapper : Shape<> {
     ShaderWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                   float height, Shader* shader) :
         Shape(shader, clamp, brush, x, y, width, height), shader(shader) { }
 
-    static void setVertexData(Vertex* vertices) { setCornerCoordinates(vertices); }
+    ShaderWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
+                  float height, Shader* shader, const float* quad_values) :
+        Shape(shader, clamp, brush, x, y, width, height), shader(shader) {
+      for (int i = 0; i < kShaderQuadValues; ++i)
+        values[i] = quad_values[i];
+    }
+
+    // PER-QUAD DATA FOR A CUSTOM SHADER.
+    //
+    // A quad drawn through `Canvas::shader` batches by the `Shader*` itself, and `submitShader` reads
+    // that shader's uniforms ONCE off the first shape of the batch — so every quad in a batch sees the
+    // same uniform values and, before this, carried nothing of its own beyond its rectangle and its
+    // brush. That is enough for one big effect quad and not enough for many small ones: a particle
+    // wants its own velocity and its own birth time, which is per-quad by construction.
+    //
+    // `ShapeVertex` already has room for it. `thickness`, `fade`, `value1` and `value2` are the
+    // `TexCoord2` attribute, which reaches the shader as the declared varying `v_shader_values`, and a
+    // `ShaderWrapper` is a plain `Shape<>` rather than a `Primitive<>` — so nothing writes any of the
+    // four and they arrive as whatever the transient buffer held. Writing them costs four stores a
+    // vertex, changes no vertex layout, and leaves every other shape untouched.
+    //
+    // The four default to zero, so the existing `Canvas::shader` overload keeps its exact behaviour
+    // except that the attribute is now deterministic instead of garbage — which is a fix in its own
+    // right: a shader that read `v_shader_values` before this got uninitialised memory.
+    // NON-STATIC, because it reads this quad's own values — and there can be only one of it: the
+    // batcher calls `shape.setVertexData(v)` on the instance (`shape_batcher.h:195`), so a static
+    // overload of the same signature beside this one is ambiguous rather than unused.
+    void setVertexData(Vertex* vertices) const {
+      setCornerCoordinates(vertices);
+      for (int i = 0; i < kVerticesPerQuad; ++i) {
+        vertices[i].thickness = values[0];
+        vertices[i].fade = values[1];
+        vertices[i].value1 = values[2];
+        vertices[i].value2 = values[3];
+      }
+    }
 
     Shader* shader = nullptr;
+    float values[kShaderQuadValues] = { 0.0f, 0.0f, 0.0f, 0.0f };
   };
 
   struct SampleRegion : Shape<PostEffectVertex> {

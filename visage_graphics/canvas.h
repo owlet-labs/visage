@@ -505,6 +505,20 @@ namespace visage {
                              pixels(width), pixels(height), shader));
     }
 
+    // THE SAME QUAD, CARRYING FOUR FLOATS OF ITS OWN — see `ShaderWrapper`.
+    //
+    // Every quad in a batch shares one set of uniforms, because `submitShader` reads them off the
+    // batch's first shape. `values` is the per-quad channel that was missing: it arrives in the shader
+    // as the declared varying `v_shader_values` (and as `a_texcoord2` in the vertex stage), so many
+    // small quads through ONE shader can each animate from their own data instead of being one big
+    // quad that has to do everything procedurally.
+    template<typename T1, typename T2, typename T3, typename T4>
+    void shader(Shader* shader, const T1& x, const T2& y, const T3& width, const T4& height,
+                const float* values) {
+      addShape(ShaderWrapper(state_.clamp, state_.brush, state_.x + pixels(x), state_.y + pixels(y),
+                             pixels(width), pixels(height), shader, values));
+    }
+
     template<typename T1, typename T2, typename T3, typename T4>
     void fill(const Path& path, const T1& x, const T2& y, const T3& width, const T4& height) {
       if (path.numPoints() == 0)
