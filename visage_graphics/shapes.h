@@ -723,7 +723,12 @@ namespace visage {
   };
 
   /// HOW MANY PER-QUAD FLOATS A SHADER QUAD MAY CARRY — see `ShaderWrapper`.
-  static constexpr int kShaderQuadValues = 4;
+  ///
+  /// SIX, WHICH IS EVERY FLOAT `ShapeVertex` HAS THAT A SHADER QUAD DOES NOT ALREADY USE. Four are the
+  /// `TexCoord2` attribute (`thickness`, `fade`, `value1`, `value2`) and two are the unused half of
+  /// `Position` (`garbage1`, `garbage2`, i.e. `a_position.zw`). There is no seventh without widening
+  /// the vertex layout, which every shape visage draws would pay for.
+  static constexpr int kShaderQuadValues = 6;
 
   struct ShaderWrapper : Shape<> {
     ShaderWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
@@ -745,11 +750,16 @@ namespace visage {
     // brush. That is enough for one big effect quad and not enough for many small ones: a particle
     // wants its own velocity and its own birth time, which is per-quad by construction.
     //
-    // `ShapeVertex` already has room for it. `thickness`, `fade`, `value1` and `value2` are the
-    // `TexCoord2` attribute, which reaches the shader as the declared varying `v_shader_values`, and a
-    // `ShaderWrapper` is a plain `Shape<>` rather than a `Primitive<>` — so nothing writes any of the
-    // four and they arrive as whatever the transient buffer held. Writing them costs four stores a
-    // vertex, changes no vertex layout, and leaves every other shape untouched.
+    // `ShapeVertex` already has room for it, in two places. `thickness`, `fade`, `value1` and `value2`
+    // are the `TexCoord2` attribute, which reaches the shader as the declared varying
+    // `v_shader_values`; `garbage1` and `garbage2` are the unused half of `Position`, reaching it as
+    // `a_position.zw`. A `ShaderWrapper` is a plain `Shape<>` rather than a `Primitive<>`, so nothing
+    // writes any of the six and they arrive as whatever the transient buffer held. Writing them costs
+    // six stores a vertex, changes no vertex layout, and leaves every other shape untouched.
+    //
+    // NOTE THE ASYMMETRY: the four are a declared VARYING and so reach the fragment stage for free,
+    // while the two in `a_position` are vertex-stage inputs only — a shader that needs them further on
+    // must forward them itself. Spend the four first.
     //
     // The four default to zero, so the existing `Canvas::shader` overload keeps its exact behaviour
     // except that the attribute is now deterministic instead of garbage — which is a fix in its own
@@ -764,11 +774,13 @@ namespace visage {
         vertices[i].fade = values[1];
         vertices[i].value1 = values[2];
         vertices[i].value2 = values[3];
+        vertices[i].garbage1 = values[4];
+        vertices[i].garbage2 = values[5];
       }
     }
 
     Shader* shader = nullptr;
-    float values[kShaderQuadValues] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float values[kShaderQuadValues] = {};
   };
 
   struct SampleRegion : Shape<PostEffectVertex> {
