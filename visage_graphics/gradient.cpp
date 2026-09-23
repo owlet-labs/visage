@@ -169,7 +169,10 @@ namespace visage {
     int prev_height = atlas_map_.height();
     atlas_map_.pack();
     repacked_ = true;
-    if (atlas_map_.width() != prev_width && atlas_map_.height() != prev_height)
+    // EITHER DIMENSION, NOT BOTH. The width is fixed after the first real pack, so growth is height
+    // alone — and a texture kept at the old height takes the re-uploads below outside itself while
+    // every colour samples coordinates normalised by the new one (Feathers backlog IU).
+    if (atlas_map_.width() != prev_width || atlas_map_.height() != prev_height)
       texture_.reset();
 
     for (auto& gradient : gradients_) {
