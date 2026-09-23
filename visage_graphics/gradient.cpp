@@ -22,6 +22,7 @@
 #include "gradient.h"
 
 #include <bgfx/bgfx.h>
+#include <cstring>
 
 namespace visage {
 
@@ -137,6 +138,19 @@ namespace visage {
     if (!bgfx::isValid(texture_->handle)) {
       texture_->handle = bgfx::createTexture2D(atlas_map_.width(), atlas_map_.height(), false, 1,
                                                bgfx::TextureFormat::RGBA16F);
+      // DEFINED CONTENTS BEFORE ANY GRADIENT LANDS. A texture made without data is whatever memory the
+      // driver hands over, and only the texels a gradient occupies are ever written after this. The
+      // rest is still read: garbage that decodes as half-float NaN reaches every shape's colour and
+      // the canvas stops painting for its whole life (Feathers backlog IT: 0/20 against 9/20 on
+      // lavapipe, deterministic under MALLOC_PERTURB_=1). Zeros are written with an UPDATE, not
+      // passed at create, because bgfx makes a texture created with data immutable and every later
+      // updateGradient would be dropped.
+      const uint32_t bytes = static_cast<uint32_t>(atlas_map_.width()) * atlas_map_.height() *
+                             sizeof(uint64_t);
+      const bgfx::Memory* zeros = bgfx::alloc(bytes);
+      std::memset(zeros->data, 0, bytes);
+      bgfx::updateTexture2D(texture_->handle, 0, 0, 0, 0, atlas_map_.width(), atlas_map_.height(), zeros);
+      repacked_ = true;
     }
 
     if (repacked_) {
