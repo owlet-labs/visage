@@ -311,6 +311,7 @@ namespace visage {
     void createWindow(IBounds bounds);
     IPoint retrieveWindowDimensions();
     void passEventToParent(XEvent& event);
+    bool textEntryOwnsUnnamedKey(KeySym keysym, int modifier_state);
     int mouseButtonState() const;
 
   public:

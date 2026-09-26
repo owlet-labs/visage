@@ -770,6 +770,20 @@ namespace visage {
     XFlush(display);
   }
 
+  // A KEY THIS BACKEND CANNOT NAME IS STILL TYPING WHILE A TEXT ENTRY HAS THE KEYBOARD. translateKeyCode
+  // knows the unshifted US layout and little else, so `!`, `?`, `(`, `:`, an accented letter or a dead
+  // key is KeyCode::Unknown — never offered to a frame, and so, before this, passed to the parent even
+  // though its text had just been typed into the field. In a plugin the parent is the DAW, which then
+  // acted on a key the user was typing. Such a key now belongs to the entry. Two kinds still go up:
+  // a bare modifier (Shift, Ctrl, Alt, AltGr, Num Lock), so the host's idea of what is held stays true, and a chord with Ctrl or Alt, which a text field leaves to the host by design.
+  bool WindowX11::textEntryOwnsUnnamedKey(KeySym keysym, int modifier_state) {
+    if (IsModifierKey(keysym))
+      return false;
+    if (modifier_state & (kModifierRegCtrl | kModifierAlt))
+      return false;
+    return hasActiveTextEntry();
+  }
+
   int WindowX11::mouseButtonState() const {
     X11Connection::DisplayLock lock(x11_);
 
@@ -1583,6 +1597,8 @@ namespace visage {
       bool used = false;
       if (key_code != KeyCode::Unknown)
         used = handleKeyDown(key_code, modifier_state, repeat);
+      else
+        used = textEntryOwnsUnnamedKey(keysym, modifier_state);
 
       if (!used)
         passEventToParent(event);
@@ -1593,8 +1609,11 @@ namespace visage {
       pressed_[keysym] = false;
       KeyCode key_code = translateKeyCode(keysym);
       bool used = false;
+      int modifier_state = modifierState();
       if (key_code != KeyCode::Unknown)
-        used = handleKeyUp(key_code, modifierState());
+        used = handleKeyUp(key_code, modifier_state);
+      else
+        used = textEntryOwnsUnnamedKey(keysym, modifier_state);
 
       if (!used)
         passEventToParent(event);
