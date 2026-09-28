@@ -82,6 +82,16 @@ namespace visage {
 
   void WindowEventHandler::handleResized(int width, int height) {
     VISAGE_ASSERT(width >= 0 && height >= 0);
+    // THE SCALE BEFORE THE GEOMETRY. setNativeBounds derives this frame's LOGICAL bounds by dividing
+    // the native rectangle by the frame's dpi scale, and on a scale change that scale is still the
+    // OLD one here: the platform has already moved the scale onto the WINDOW (macOS
+    // viewDidChangeBackingProperties -> resetBackingScale; a content-scale change likewise lands on
+    // the window first), while the frame only re-reads it inside resized() — which runs from the
+    // setBounds THIS call is about to make. Deriving from the stale scale laid the tree out at
+    // old/new of the true points and left every repair to whatever re-derivation happened to follow;
+    // on macOS the editor drew wrong at anything but its birth scale. Reading the draw scale off the
+    // window first makes the first derivation correct; the re-assert inside resized() is then a no-op.
+    content_frame_->setDpiScale(window_->drawScale());
     content_frame_->setNativeBounds(0, 0, width, height);
     content_frame_->redraw();
   }
