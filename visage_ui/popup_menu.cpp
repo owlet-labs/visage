@@ -24,6 +24,8 @@
 #include "embedded/fonts.h"
 #include "visage_graphics/theme.h"
 
+#include <algorithm>
+
 namespace visage {
   VISAGE_THEME_COLOR(PopupMenuBackground, 0xff262a2e);
   VISAGE_THEME_COLOR(PopupMenuBorder, 0xff606265);
@@ -268,12 +270,17 @@ namespace visage {
     int y = point.y == PopupMenu::kNotSet ? window_bounds.bottom() : window_bounds.y() + point.y;
     int bottom = y + h;
     int right = x + w;
+    // Flip above the anchor in WINDOW coordinates (the anchor's local y is not a window y), then keep
+    // the whole list inside the window: an anchor laid out past the window's edge must not take the
+    // menu with it.
     if (bottom > height()) {
-      int top = point.y == PopupMenu::kNotSet ? window_bounds.y() : point.y;
-      y = std::max(0, top - h);
+      int top = point.y == PopupMenu::kNotSet ? window_bounds.y() : window_bounds.y() + point.y;
+      y = top - h;
     }
     if (right > width())
-      x = std::max(0, x - w);
+      x = x - w;
+    x = std::clamp(x, 0, std::max(0, static_cast<int>(width()) - w));
+    y = std::clamp(y, 0, std::max(0, static_cast<int>(height()) - h));
 
     for (auto& list : lists_) {
       list.resetOpenMenu();
@@ -364,19 +371,30 @@ namespace visage {
 
     lists_[source_index].setOpenMenu(lists_[source_index].hoverIndex());
     if (source_index < kMaxSubMenus - 1) {
-      lists_[source_index + 1].setOptions(option.options());
-      int h = lists_[source_index + 1].renderHeight();
-      int w = lists_[source_index + 1].renderWidth();
-      int y = list->y() + selection_y;
-      int bottom = y + h;
+      PopupList& sub_list = lists_[source_index + 1];
+      sub_list.setOptions(option.options());
+      // A submenu taller than the window is capped to it and scrolls, as the top level does, and it
+      // starts at its first row.
+      int window_height = height();
+      int window_width = width();
+      int h = std::min(window_height, static_cast<int>(sub_list.renderHeight()));
+      int w = sub_list.renderWidth();
+      // The row's head ON SCREEN: `selection_y` is in the list's unscrolled rows.
+      int y = list->y() + selection_y - static_cast<int>(list->yPosition());
+      if (y + h > window_height)
+        y = window_height - h;
+      y = std::max(0, y);
+      // Right of the list if it fits, else left of it, else wherever keeps it in the window.
       int x = lists_[source_index].right();
-      int right = x + w;
-      if (bottom > height())
-        y = height() - h;
-      if (right > width())
-        x = lists_[source_index].x() - w;
+      if (x + w > window_width) {
+        int left = lists_[source_index].x() - w;
+        x = left >= 0 ? left : std::max(0, window_width - w);
+      }
 
-      lists_[source_index + 1].setBounds(x, y, w, h);
+      sub_list.setYPosition(0.0f);
+      sub_list.setBounds(x, y, w, h);
+      // Its own rows, even when the bounds did not change (two capped submenus are the same size).
+      sub_list.setScrollableHeight(sub_list.renderHeight(), h);
       lists_[source_index + 1].setNoHover();
       lists_[source_index + 1].setVisible(true);
     }
@@ -390,7 +408,7 @@ namespace visage {
     hover_index_ = -1;
     for (auto& sub_list : lists_) {
       if (sub_list.isVisible() && sub_list.bounds().contains(position)) {
-        sub_list.setHoverFromPosition(position - sub_list.topLeft() + Point(0, list->yPosition()));
+        sub_list.setHoverFromPosition(position - sub_list.topLeft() + Point(0, sub_list.yPosition()));
 
         hover_list_ = &sub_list;
         hover_index_ = hover_list_->hoverIndex();
