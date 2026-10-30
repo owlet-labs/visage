@@ -49,8 +49,16 @@ namespace visage {
     if (frame == nullptr)
       return;
 
-    if (mouse_hovered_frame_ == frame)
+    // A HOVERED FRAME LEAVING THE TREE GIVES THE CURSOR BACK (Feathers backlog MF). It gets no exit
+    // event from here, so a frame that set a cursor on enter (TextEditor's I-beam, Button's pointing
+    // hand) never set it back, and on X11 the cursor is one setting on the whole window: the I-beam
+    // stayed over an editor with no text in it. The arrow rather than an exit, because this runs from
+    // ~Frame too, where a virtual mouseExit would reach a half-destroyed object; setCursorStyle is
+    // non-virtual and goes through the frame's handler, which is still attached at this point.
+    if (mouse_hovered_frame_ == frame) {
       mouse_hovered_frame_ = nullptr;
+      frame->setCursorStyle(MouseCursor::Arrow);
+    }
     if (temporary_frame_ == frame)
       temporary_frame_ = nullptr;
     if (mouse_down_frame_ == frame)
@@ -383,7 +391,24 @@ namespace visage {
     mouse_event.precise_wheel_delta_y = precise_y;
     mouse_event.wheel_momentum = momentum;
 
-    mouse_hovered_frame_ = content_frame_->frameAtPoint(mouse_event.window_position);
+    // THE RE-HOVER IS A HOVER CHANGE, SO IT DELIVERS THE EXIT AND THE ENTER (Feathers backlog MF), as
+    // handleMouseMove does. A wheel that scrolls the frame under the pointer away used to reassign the
+    // hovered frame silently, and the frame left behind never heard its exit — so never gave back a
+    // cursor it had set. Not while a button is held: handleMouseMove leaves the hover alone then too.
+    Frame* now_hovered = content_frame_->frameAtPoint(mouse_event.window_position);
+    if (mouse_down_frame_ == nullptr && now_hovered != mouse_hovered_frame_) {
+      if (mouse_hovered_frame_) {
+        mouse_event.position = mouse_event.window_position - mouse_hovered_frame_->positionInWindow();
+        mouse_event.event_frame = mouse_hovered_frame_;
+        mouse_hovered_frame_->processMouseExit(mouse_event);
+      }
+      if (now_hovered) {
+        mouse_event.position = mouse_event.window_position - now_hovered->positionInWindow();
+        mouse_event.event_frame = now_hovered;
+        now_hovered->processMouseEnter(mouse_event);
+      }
+    }
+    mouse_hovered_frame_ = now_hovered;
     if (mouse_hovered_frame_) {
       temporary_frame_ = mouse_hovered_frame_;
       bool used = false;

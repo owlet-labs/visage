@@ -195,6 +195,9 @@ namespace visage {
     int clientHeight() const { return client_height_; }
     void setEventHandler(EventHandler* event_handler) { event_handler_ = event_handler; }
     void clearEventHandler() { event_handler_ = nullptr; }
+    /// The handler this window delivers its events to — so a host (or a test) can drive the same
+    /// road a real pointer takes rather than restating it.
+    EventHandler* eventHandler() const { return event_handler_; }
 
     bool hasActiveTextEntry() const;
 
