@@ -204,7 +204,11 @@ namespace visage {
     const bool had_frame_buffer = frame_buffer_data_ && bgfx::isValid(frame_buffer_data_->handle);
     window_handle_ = nullptr;
     destroyFrameBuffer("removeFromWindow");
-    if (!had_frame_buffer)
+    // A WINDOWLESS LAYER HAS NO SURFACE TO OUTLIVE, so there is nothing for the flush below to protect,
+    // and the frame it submits renders view 0 to a backbuffer that does not exist: with bgfx's debug
+    // asserts compiled in that is "Rendering to backbuffer in headless mode." and a trap (SIGILL)
+    // through GraphicsCallbackHandler::fatal (Feathers backlog V, 2026-10-30).
+    if (!had_frame_buffer || headless_render_)
       return;
 
     // FLUSH IT NOW, WHILE THE WINDOW IS STILL THERE. bgfx::destroy only queues the destruction; the
