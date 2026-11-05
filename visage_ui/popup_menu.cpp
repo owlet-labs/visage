@@ -24,6 +24,8 @@
 #include "embedded/fonts.h"
 #include "visage_graphics/theme.h"
 
+#include <algorithm>
+
 namespace visage {
   VISAGE_THEME_COLOR(PopupMenuBackground, 0xff262a2e);
   VISAGE_THEME_COLOR(PopupMenuBorder, 0xff606265);
@@ -294,10 +296,13 @@ namespace visage {
     int right = x + w;
     if (bottom > height()) {
       int top = point.y == PopupMenu::kNotSet ? window_bounds.y() : window_bounds.y() + point.y;
-      y = std::max(0, top - h);
+      y = top - h;
     }
     if (right > width())
-      x = std::max(0, x - w);
+      x = x - w;
+    // Feathers (re-port of fork cae3839): every list stays inside the window.
+    x = std::clamp(x, 0, std::max(0, static_cast<int>(width()) - w));
+    y = std::clamp(y, 0, std::max(0, static_cast<int>(height()) - h));
 
     for (auto& list : lists_) {
       list->resetOpenMenu();
@@ -432,14 +437,19 @@ namespace visage {
     if (bottom > height())
       y = height() - h;
     y = std::max(0, y);
-    if (right > width())
-      x = source.x() - w;
-
-    sub_list.setBounds(x, y, w, h);
-    if (!reopening) {
-      sub_list.setYPosition(0);
-      sub_list.setScrollableHeight(sub_list.renderHeight(), h);
+    // Feathers (re-port of fork cae3839): a submenu that fits on neither side stays inside the window.
+    if (right > width()) {
+      int left = source.x() - w;
+      x = left >= 0 ? left : std::max(0, static_cast<int>(width()) - w);
     }
+
+    if (!reopening)
+      sub_list.setYPosition(0);
+    sub_list.setBounds(x, y, w, h);
+    // Feathers: the scroll range follows the options just set even when "reopening" — that guess
+    // compares hover indices, so two headings opened with no hover (-1 == -1) share one and the
+    // second kept the first's range, leaving its last row out of reach.
+    sub_list.setScrollableHeight(sub_list.renderHeight(), h);
     sub_list.setNoHover();
     sub_list.setVisible(true);
   }
