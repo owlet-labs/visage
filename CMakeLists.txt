@@ -157,6 +157,17 @@ if (FEATHERS_FULL_REDRAW)
   message(STATUS "VISAGE: FEATHERS_FULL_REDRAW build - every layer repaints every frame")
 endif ()
 
+# Feathers: A KNOWN-BAD, AS A BUILD OPTION so a good and a broken build can sit side by side on a
+# venue that is not this machine. It deletes the per-swap-chain-buffer damage history (each buffer
+# gets only the current frame's damage), which is the fault class FEATHERS_FULL_REDRAW guards against.
+# A venue whose swap chain reuses one image (lavapipe/Xvfb, MEASURED 2026-11-05) cannot see it; a real
+# GPU must show it RED before its green on the good build counts. NEVER for a shipped build.
+option(FEATHERS_KNOWN_BAD_NO_DAMAGE_HISTORY "KNOWN-BAD: drop per-buffer damage history (test venues only)" OFF)
+if (FEATHERS_KNOWN_BAD_NO_DAMAGE_HISTORY)
+  target_compile_definitions(VisageGraphics PRIVATE FEATHERS_KNOWN_BAD_NO_DAMAGE_HISTORY)
+  message(WARNING "VISAGE: KNOWN-BAD build - per-buffer damage history deleted. Not for shipping.")
+endif ()
+
 if (VISAGE_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif ()

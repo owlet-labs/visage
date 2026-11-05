@@ -331,8 +331,10 @@ namespace visage::gpu {
         return DamageRegion::full(frame_buffer, width, height);
 
       DamageRegion result = damage;
+#ifndef FEATHERS_KNOWN_BAD_NO_DAMAGE_HISTORY
       for (int i = 0; i < age - 1; ++i)
         result.add(history_[i]);
+#endif
       result.clip(width, height);
       return result;
     }
