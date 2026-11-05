@@ -147,6 +147,9 @@ namespace visage {
     PackedFont* packed_font_ = nullptr;
   };
 
+  // Feathers: how many font atlas repacks this process has performed (see font.cpp).
+  uint64_t fontAtlasRepacks();
+
   class FontCache {
   public:
     friend class Font;

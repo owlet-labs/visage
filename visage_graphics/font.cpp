@@ -27,10 +27,19 @@
 #include "visage_utils/thread_utils.h"
 
 #include <freetype/freetype.h>
+#include <atomic>
 #include <set>
 #include <vector>
 
 namespace visage {
+  // Feathers (re-port of the fork's c8ba573 family): bumped by every font atlas repack, so a caller
+  // can tell that one happened. Bumped before glyph coordinates move.
+  static std::atomic<uint64_t> font_atlas_repacks { 0 };
+
+  uint64_t fontAtlasRepacks() {
+    return font_atlas_repacks.load(std::memory_order_relaxed);
+  }
+
   FontCache* FontCache::instance() {
     static FontCache cache;
     return &cache;
@@ -167,6 +176,7 @@ namespace visage {
       releaseTexture();
 
       atlas_map_.pack();
+      font_atlas_repacks.fetch_add(1, std::memory_order_relaxed);
       for (auto& glyph : packed_glyphs_) {
         if (glyph.second.width == 0)
           continue;
