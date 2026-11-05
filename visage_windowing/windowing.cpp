@@ -52,6 +52,11 @@ namespace visage {
       event_handler_->handleResized(width, height);
   }
 
+  void Window::handleExposed(int x, int y, int width, int height) {
+    if (event_handler_)
+      event_handler_->handleExposed(x, y, width, height);
+  }
+
   void Window::handleAdjustResize(int* width, int* height, bool horizontal_resize, bool vertical_resize) {
     if (event_handler_)
       event_handler_->handleAdjustResize(width, height, horizontal_resize, vertical_resize);

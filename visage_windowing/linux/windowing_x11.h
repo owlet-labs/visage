@@ -292,6 +292,7 @@ namespace visage {
 
     void runEventLoop() override;
     void processPluginFdEvents() override;
+    void handlePluginFdEvent(XEvent& event);
     static void processMessageWindowEvent(X11Connection* x11, XEvent& event);
     void processEvent(XEvent& event);
 
@@ -320,6 +321,7 @@ namespace visage {
     bool isPluginWindow() const { return plugin_x11_ != nullptr; }
     bool timerThreadRunning() { return timer_thread_running_.load(); }
     void framePresented() override;
+    int modifierState() const override;
     long long lastPresentMicroseconds() const { return last_present_us_.load(); }
     void presentCompleted() {
       if (presents_outstanding_.load() > 0)

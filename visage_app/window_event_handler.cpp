@@ -21,6 +21,7 @@
 
 #include "window_event_handler.h"
 
+#include "visage_graphics/region.h"
 #include "visage_ui/frame.h"
 
 #include <regex>
@@ -49,8 +50,12 @@ namespace visage {
     if (frame == nullptr)
       return;
 
-    if (mouse_hovered_frame_ == frame)
+    if (mouse_hovered_frame_ == frame) {
       mouse_hovered_frame_ = nullptr;
+      // Feathers (re-port of fork 5fd5c18, backlog MF): a hovered frame that goes away gives the
+      // cursor back, since no exit will ever reach it.
+      frame->setCursorStyle(MouseCursor::Arrow);
+    }
     if (temporary_frame_ == frame)
       temporary_frame_ = nullptr;
     if (mouse_down_frame_ == frame)
@@ -118,6 +123,11 @@ namespace visage {
       content_frame_->setDpiScale(editor_->window()->dpiScale());
     content_frame_->setNativeBounds(0, 0, width, height);
     content_frame_->redraw();
+  }
+
+  void WindowEventHandler::handleExposed(int x, int y, int width, int height) {
+    // Feathers (re-port of fork 4714c72): pixels another window destroyed are repainted.
+    content_frame_->region()->invalidateRect({ x, y, width, height });
   }
 
   void WindowEventHandler::handleAdjustResize(int* width, int* height, bool horizontal_resize,
@@ -403,6 +413,23 @@ namespace visage {
     mouse_event.precise_wheel_delta_x = precise_x;
     mouse_event.precise_wheel_delta_y = precise_y;
     mouse_event.wheel_momentum = momentum;
+
+    // Feathers (re-port of fork 5fd5c18, backlog MF): a wheel that scrolls a different frame under
+    // a still pointer is a hover change, so the old frame hears its exit and the new its enter.
+    Frame* now_hovered = content_frame_->frameAtPoint(mouse_event.window_position);
+    if (mouse_down_frame_ == nullptr && now_hovered != mouse_hovered_frame_) {
+      if (mouse_hovered_frame_) {
+        mouse_event.position = mouse_event.window_position - mouse_hovered_frame_->positionInWindow();
+        mouse_event.event_frame = mouse_hovered_frame_;
+        mouse_hovered_frame_->processMouseExit(mouse_event);
+      }
+      if (now_hovered) {
+        mouse_event.position = mouse_event.window_position - now_hovered->positionInWindow();
+        mouse_event.event_frame = now_hovered;
+        now_hovered->processMouseEnter(mouse_event);
+      }
+      mouse_hovered_frame_ = now_hovered;
+    }
 
     temporary_frame_ = content_frame_->frameAtPoint(mouse_event.window_position);
     bool used = false;

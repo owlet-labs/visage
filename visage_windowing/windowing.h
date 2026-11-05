@@ -106,6 +106,8 @@ namespace visage {
       virtual void handleAdjustResize(int* width, int* height, bool horizontal_resize,
                                       bool vertical_resize) { }
       virtual void handleResized(int width, int height) = 0;
+      // Feathers (re-port of fork 4714c72): the window system says these pixels were lost.
+      virtual void handleExposed(int x, int y, int width, int height) { }
 
       virtual void handleWindowShown() = 0;
       virtual void handleWindowHidden() = 0;
@@ -152,6 +154,11 @@ namespace visage {
     virtual void setFrameRenderTime(double seconds) { }
     virtual void waitForFrame() { }
     virtual void setFrameWaiter(std::function<bool(int)> waiter) { }
+
+    // Feathers: the keyboard modifiers held RIGHT NOW, as a kModifier* mask, read from the platform
+    // rather than from an event, so a frame can poll a held modifier once a frame. Zero where a
+    // platform has no implementation. (Re-port of fork 9d168ca onto v1.0.0.)
+    virtual int modifierState() const { return 0; }
 
     void setDrawCallback(std::function<void(double)> callback) {
       draw_callback_ = std::move(callback);
@@ -204,6 +211,8 @@ namespace visage {
     int clientHeight() const { return client_height_; }
     void setEventHandler(EventHandler* event_handler) { event_handler_ = event_handler; }
     void clearEventHandler() { event_handler_ = nullptr; }
+    // Feathers: the getter v1.0.0 dropped; tests reach the handler through it.
+    EventHandler* eventHandler() const { return event_handler_; }
 
     bool hasActiveTextEntry() const;
 
@@ -223,6 +232,7 @@ namespace visage {
     void handleFocusLost();
     void handleFocusGained();
     void handleResized(int width, int height);
+    void handleExposed(int x, int y, int width, int height);
     void handleAdjustResize(int* width, int* height, bool horizontal_resize, bool vertical_resize);
 
     void handleWindowShown();

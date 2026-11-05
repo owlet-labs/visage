@@ -1510,7 +1510,7 @@ namespace visage {
     return result;
   }
 
-  static int modifierState(unsigned int state) {
+  static int modifierStateFromMask(unsigned int state) {
     int result = 0;
     if (state & ShiftMask)
       result = result | kModifierShift;
@@ -1521,6 +1521,21 @@ namespace visage {
     if (state & Mod4Mask)
       result = result | kModifierMeta;
     return result;
+  }
+
+  int WindowX11::modifierState() const {
+    // Feathers (re-port of fork 9d168ca): the live modifier mask from XQueryPointer, on this
+    // window's own connection.
+    if (x11_ == nullptr || x11_->display() == nullptr || window_handle_ == 0)
+      return 0;
+    X11Connection::DisplayLock lock(x11_);
+    ::Window root_return, child_return;
+    int root_x = 0, root_y = 0, win_x = 0, win_y = 0;
+    unsigned int mask_return = 0;
+    if (!XQueryPointer(x11_->display(), window_handle_, &root_return, &child_return, &root_x,
+                       &root_y, &win_x, &win_y, &mask_return))
+      return 0;
+    return modifierStateFromMask(mask_return);
   }
 
   static MouseButton buttonFromEvent(XEvent& event) {
@@ -1956,9 +1971,31 @@ namespace visage {
           drawCallback(drawTime());
         }
       }
+      // Feathers (re-port of fork aa0111f): the window manager's close, for this window or any other
+      // visage window whose events arrive on this connection (a plugin's popout).
+      else if (event.type == DestroyNotify ||
+               (event.type == ClientMessage && event.xclient.data.l[0] == x11_->deleteMessage())) {
+        WindowX11* target = NativeWindowLookup::instance().findWindow(event.xany.window);
+        if (target == nullptr && event.xany.window == window_handle_)
+          target = this;
+        if (target)
+          target->handleCloseRequested();
+      }
       else if (event.xany.window == window_handle_ || event.xany.window == parent_handle_)
         processEvent(event);
+      // Feathers (re-port of fork 7f63ac0): another window's events are dispatched, not dropped.
+      else if (WindowX11* other = NativeWindowLookup::instance().findWindow(event.xany.window))
+        other->handlePluginFdEvent(event);
     }
+  }
+
+  void WindowX11::handlePluginFdEvent(XEvent& event) {
+    if (event.type == ClientMessage && event.xclient.message_type == x11_->timerEvent()) {
+      clearTick();
+      drawCallback(drawTime());
+      return;
+    }
+    processEvent(event);
   }
 
   void WindowX11::processMessageWindowEvent(X11Connection* x11, XEvent& event) {
@@ -2015,6 +2052,10 @@ namespace visage {
 
   void WindowX11::processEvent(XEvent& event) {
     switch (event.type) {
+    case Expose: {
+      handleExposed(event.xexpose.x, event.xexpose.y, event.xexpose.width, event.xexpose.height);
+      break;
+    }
     case ClientMessage: {
       if (event.xclient.message_type == x11_->dndEnter()) {
         X11Connection::DisplayLock lock(x11_);
@@ -2170,7 +2211,7 @@ namespace visage {
 
       if (window_operation_ == 0) {
         handleMouseMove(event.xmotion.x, event.xmotion.y, mouseButtonState(event.xmotion.state),
-                        modifierState(event.xmotion.state));
+                        modifierStateFromMask(event.xmotion.state));
         if (mouseRelativeMode())
           setNativeCursorPosition(mouse_down_position_);
       }
@@ -2181,7 +2222,7 @@ namespace visage {
         float y = (event.xbutton.button == 4 ? 1.0f : 0.0f) - (event.xbutton.button == 5 ? 1.0f : 0.0f);
         float x = (event.xbutton.button == 7 ? 1.0f : 0.0f) - (event.xbutton.button == 6 ? 1.0f : 0.0f);
         handleMouseWheel(x, y, event.xbutton.x, event.xbutton.y,
-                         mouseButtonState(event.xbutton.state), modifierState(event.xbutton.state));
+                         mouseButtonState(event.xbutton.state), modifierStateFromMask(event.xbutton.state));
       }
       else {
         MouseButton button = buttonFromEvent(event);
@@ -2190,7 +2231,7 @@ namespace visage {
         else
           handleMouseDown(button, event.xbutton.x, event.xbutton.y,
                           mouseButtonState(event.xbutton.state) | button,
-                          modifierState(event.xbutton.state));
+                          modifierStateFromMask(event.xbutton.state));
 
         HitTestResult hit_test = handleHitTest(event.xbutton.x, event.xbutton.y);
 
@@ -2244,7 +2285,7 @@ namespace visage {
       else
         handleMouseUp(button, event.xbutton.x, event.xbutton.y,
                       mouseButtonState(event.xbutton.state) & ~button,
-                      modifierState(event.xbutton.state));
+                      modifierStateFromMask(event.xbutton.state));
 
       if (button == kMouseButtonLeft) {
         if (hit_test == HitTestResult::CloseButton &&
@@ -2292,11 +2333,11 @@ namespace visage {
       break;
     }
     case LeaveNotify: {
-      handleMouseLeave(mouseButtonState(event.xcrossing.state), modifierState(event.xcrossing.state));
+      handleMouseLeave(mouseButtonState(event.xcrossing.state), modifierStateFromMask(event.xcrossing.state));
       break;
     }
     case KeyPress: {
-      int modifier_state = modifierState(event.xkey.state);
+      int modifier_state = modifierStateFromMask(event.xkey.state);
       std::string text = lookupText(input_context_, &event.xkey);
       KeySym keysym = lookupKeysym(&event.xkey);
       bool repeat = pressed_[keysym];
@@ -2320,7 +2361,7 @@ namespace visage {
       KeyCode key_code = translateKeyCode(keysym);
       bool used = false;
       if (key_code != KeyCode::Unknown)
-        used = handleKeyUp(key_code, modifierState(event.xkey.state) & ~modifierForKeyCode(key_code));
+        used = handleKeyUp(key_code, modifierStateFromMask(event.xkey.state) & ~modifierForKeyCode(key_code));
 
       if (!used)
         passEventToParent(event);
