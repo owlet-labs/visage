@@ -2322,6 +2322,12 @@ namespace visage {
       break;
     }
     case FocusOut: {
+      // WHILE THE KEYBOARD IS GRABBED, THE FOCUS GOING ELSEWHERE IS NOT A LOSS: every key still comes
+      // here. A host whose window takes the X focus back (Bitwig's does) would otherwise end the text
+      // entry that asked for the grab the moment it began (Feathers, 2026-11-05, measured in
+      // tools/key-probe). releaseKeyboardForWindow reports the loss if the focus is elsewhere then.
+      if (keyboard_grabbed_)
+        break;
       if (input_context_)
         XUnsetICFocus(input_context_);
       if (changesFocus(event.xfocus))
@@ -2337,19 +2343,44 @@ namespace visage {
       break;
     }
     case KeyPress: {
-      int modifier_state = modifierStateFromMask(event.xkey.state);
-      std::string text = lookupText(input_context_, &event.xkey);
-      KeySym keysym = lookupKeysym(&event.xkey);
+      // Feathers, 2026-11-05 (Bitwig on X11: no capitals in preset names). A FORWARDED KEY CARRIES
+      // WHATEVER STATE ITS SENDER WROTE: a host that holds the focus and passes keys on with
+      // XSendEvent may leave out Shift and Lock. The server's state is what the user is holding, so
+      // for a sent event Shift and Lock are taken from it as well.
+      XKeyEvent key_event = event.xkey;
+      if (event.xkey.send_event) {
+        ::Window root_return = 0, child_return = 0;
+        int root_x = 0, root_y = 0, win_x = 0, win_y = 0;
+        unsigned int mask_return = 0;
+        {
+          X11Connection::DisplayLock lock(x11_);
+          XQueryPointer(x11_->display(), window_handle_, &root_return, &child_return, &root_x,
+                        &root_y, &win_x, &win_y, &mask_return);
+        }
+        key_event.state |= mask_return & (ShiftMask | LockMask);
+      }
+      int modifier_state = modifierStateFromMask(key_event.state);
+      std::string text = lookupText(input_context_, &key_event);
+      KeySym keysym = lookupKeysym(&key_event);
       bool repeat = pressed_[keysym];
       pressed_[keysym] = true;
       KeyCode key_code = translateKeyCode(keysym);
       bool used = false;
       if (key_code != KeyCode::Unknown)
         used = handleKeyDown(key_code, modifier_state | modifierForKeyCode(key_code), repeat);
+      else
+        used = textEntryOwnsUnnamedKey(keysym, modifier_state);
 
       bool shortcut = modifier_state & (kModifierRegCtrl | kModifierAlt | kModifierMeta);
       if (!shortcut && !text.empty() && text[0] < 127)
         handleTextInput(text);
+
+      // REMEMBERED BY KEYCODE (a release's keysym can differ from its press's), so the release of a
+      // key we used is ours too: see KeyRelease.
+      if (used)
+        used_presses_[event.xkey.keycode] = true;
+      else
+        used_presses_.erase(event.xkey.keycode);
 
       if (!used)
         passEventToParent(event);
@@ -2360,8 +2391,17 @@ namespace visage {
       pressed_[keysym] = false;
       KeyCode key_code = translateKeyCode(keysym);
       bool used = false;
+      int modifier_state = modifierStateFromMask(event.xkey.state);
       if (key_code != KeyCode::Unknown)
-        used = handleKeyUp(key_code, modifierStateFromMask(event.xkey.state) & ~modifierForKeyCode(key_code));
+        used = handleKeyUp(key_code, modifier_state & ~modifierForKeyCode(key_code));
+      else
+        used = textEntryOwnsUnnamedKey(keysym, modifier_state);
+
+      // A RELEASE WHOSE PRESS WE USED IS OURS: the host never saw that press, so a lone release is a
+      // key it never had. It happens whenever the press ends what had the focus (Enter saving a
+      // name: the release then finds a frame that does not want it).
+      if (used_presses_.erase(event.xkey.keycode) > 0)
+        used = true;
 
       if (!used)
         passEventToParent(event);
@@ -2586,6 +2626,47 @@ namespace visage {
   IPoint WindowX11::maxWindowDimensions() const {
     MonitorInfo monitor_info = activeMonitorInfo();
     return { monitor_info.bounds.width(), monitor_info.bounds.height() };
+  }
+
+  bool WindowX11::textEntryOwnsUnnamedKey(KeySym keysym, int modifier_state) const {
+    if (IsModifierKey(keysym))
+      return false;
+    if (modifier_state & (kModifierRegCtrl | kModifierAlt))
+      return false;
+    return hasActiveTextEntry();
+  }
+
+  bool grabKeyboardForWindow(void* native_handle) {
+    WindowX11* window = NativeWindowLookup::instance().findWindow((::Window)native_handle);
+    if (window == nullptr || window->x11Connection() == nullptr || window->x11Connection()->display() == nullptr)
+      return false;
+    X11Connection::DisplayLock lock(window->x11Connection());
+    ::Display* display = window->x11Connection()->display();
+    int result = XGrabKeyboard(display, (::Window)native_handle, False, GrabModeAsync, GrabModeAsync,
+                               CurrentTime);
+    XSync(display, False);
+    window->setKeyboardGrabbed(result == GrabSuccess);
+    return result == GrabSuccess;
+  }
+
+  void releaseKeyboardForWindow(void* native_handle, bool report_focus_lost) {
+    WindowX11* window = NativeWindowLookup::instance().findWindow((::Window)native_handle);
+    if (window == nullptr || window->x11Connection() == nullptr || window->x11Connection()->display() == nullptr)
+      return;
+    bool focus_elsewhere = false;
+    {
+      X11Connection::DisplayLock lock(window->x11Connection());
+      ::Display* display = window->x11Connection()->display();
+      XUngrabKeyboard(display, CurrentTime);
+      XSync(display, False);
+      ::Window focus = 0;
+      int revert = 0;
+      XGetInputFocus(display, &focus, &revert);
+      focus_elsewhere = focus != (::Window)native_handle;
+    }
+    window->setKeyboardGrabbed(false);
+    if (report_focus_lost && focus_elsewhere)
+      window->handleFocusLost();
   }
 }
 #endif

@@ -318,6 +318,9 @@ namespace visage {
     IPoint maxWindowDimensions() const override;
     MonitorInfo monitorInfo() { return monitor_info_; }
     X11Connection* x11Connection() { return x11_; }
+    /// Set by grabKeyboardForWindow / releaseKeyboardForWindow (Feathers, 2026-11-05).
+    void setKeyboardGrabbed(bool grabbed) { keyboard_grabbed_ = grabbed; }
+    bool keyboardGrabbed() const { return keyboard_grabbed_; }
     bool isPluginWindow() const { return plugin_x11_ != nullptr; }
     bool timerThreadRunning() { return timer_thread_running_.load(); }
     void framePresented() override;
@@ -352,6 +355,9 @@ namespace visage {
     void editSizeHints(F&& edit);
     void setMinimumSizeHints();
     void passEventToParent(XEvent& event);
+    /// A key visage cannot name (`!`, an accented letter) stays with an active text entry, whose text
+    /// it typed; a bare modifier and a Ctrl/Alt chord go on to the host. (Feathers fork 2c1570a, re-ported.)
+    bool textEntryOwnsUnnamedKey(KeySym keysym, int modifier_state) const;
 
     ::Window dragDropTarget() const;
     ::Window dragDropProxy(::Window window) const;
@@ -387,6 +393,9 @@ namespace visage {
     ::Window parent_handle_ = 0;
     XIC input_context_ = nullptr;
     std::map<KeySym, bool> pressed_;
+    /// Keycodes whose press was used, so their release is used too (Feathers 2026-11-05).
+    std::map<unsigned int, bool> used_presses_;
+    bool keyboard_grabbed_ = false;
     std::atomic<long long> timer_microseconds_ = 16667;
     std::atomic<bool> timer_thread_running_ = false;
     std::atomic<int> presents_outstanding_ = 0;

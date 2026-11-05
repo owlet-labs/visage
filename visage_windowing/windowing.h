@@ -329,4 +329,19 @@ namespace visage {
   }
 
   void closeApplication();
+
+#if defined(__linux__)
+  // THE KEYBOARD FOR ONE WINDOW, ACTIVELY GRABBED (X11 only; Feathers' text entry). An embedding
+  // host may hold the X input focus itself and forward only the keys it does not keep (Bitwig keeps
+  // Space and others), so focusing our own window is not enough: the host takes the focus back. An
+  // active grab delivers every key to the window whatever the focus, and only the connection that
+  // owns the window can make it, since the grabbing client is the one that receives the keys.
+  // Returns false when nothing was grabbed (no such window, not viewable, another client's grab).
+  // X itself ends the grab if the window is unmapped or destroyed; releasing a window that has gone
+  // or holds no grab does nothing.
+  bool grabKeyboardForWindow(void* native_handle);
+  // With report_focus_lost, a window whose X focus is elsewhere once the grab is gone is told it
+  // lost the focus (the FocusOut it ignored while grabbed): the user clicked into another window.
+  void releaseKeyboardForWindow(void* native_handle, bool report_focus_lost = false);
+#endif
 }
