@@ -476,6 +476,25 @@ namespace visage {
                              pixels(width), pixels(height), shader));
     }
 
+    // Feathers (re-port of fork 1c06b1f): draw a pixel buffer you already have, stretched to a
+    // rectangle. The buffer is re-uploaded each draw, so a caller may change it in place.
+    template<typename T1, typename T2, typename T3, typename T4>
+    void imageRaw(const unsigned char* data, int image_width, int image_height, ImageFormat format,
+                  const T1& x, const T2& y, const T3& width, const T4& height) {
+      Image raw(data, image_width * image_height * 4, image_width, image_height);
+      raw.raw = true;
+      raw.format = format;
+      addImage(raw, pixels(x), pixels(y), pixels(width), pixels(height));
+    }
+
+    // Feathers (re-port of fork f649b0e): a shader quad with six per-quad floats.
+    template<typename T1, typename T2, typename T3, typename T4>
+    void shader(Shader* shader, const T1& x, const T2& y, const T3& width, const T4& height,
+                const float* values) {
+      addShape(ShaderWrapper(state_.clamp, state_.brush, state_.x + pixels(x), state_.y + pixels(y),
+                             pixels(width), pixels(height), shader, values));
+    }
+
     template<typename T1, typename T2, typename T3, typename T4>
     void fill(const Path& path, const T1& x, const T2& y, const T3& width, const T4& height) {
       if (path.numPoints() == 0)
@@ -806,6 +825,11 @@ namespace visage {
     void addImage(const Image& image, float x, float y) {
       addShape(ImageWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, image.width,
                             image.height, image, imageAtlas()));
+    }
+
+    void addImage(const Image& image, float x, float y, float width, float height) {
+      addShape(ImageWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height,
+                            image, imageAtlas()));
     }
 
     void addGraphLine(const GraphData& data, float x, float y, float width, float height, float thickness) {

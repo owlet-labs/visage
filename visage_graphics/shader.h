@@ -24,6 +24,10 @@
 #include "graphics_utils.h"
 #include "visage_file_embed/embedded_file.h"
 
+#include <array>
+#include <map>
+#include <string>
+
 namespace visage {
   class Canvas;
 
@@ -38,7 +42,15 @@ namespace visage {
     const EmbeddedFile& fragmentShader() const { return fragment_shader_; }
     BlendMode state() const { return state_; }
 
+    // Feathers (re-port of fork 57032bc): named vec4 uniforms, set on every batch of this shader.
+    void setUniformValue(const std::string& name, float value1, float value2 = 0.0f,
+                         float value3 = 0.0f, float value4 = 0.0f) {
+      uniforms_[name] = { value1, value2, value3, value4 };
+    }
+    const std::map<std::string, std::array<float, 4>>& uniforms() const { return uniforms_; }
+
   private:
+    std::map<std::string, std::array<float, 4>> uniforms_;
     EmbeddedFile vertex_shader_;
     EmbeddedFile fragment_shader_;
     BlendMode state_ = BlendMode::Alpha;

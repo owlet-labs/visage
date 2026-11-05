@@ -717,6 +717,8 @@ namespace visage {
     setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
     setColorMult(layer);
     setOriginFlipUniform(layer.bottomLeftOrigin());
+    for (const auto& uniform : shader->uniforms())
+      gpu::setUniform(UniformCache::uniformHandle(uniform.first.c_str()), uniform.second.data());
     submitBlended(shader->state(), submit_pass,
                   ProgramCache::programHandle(shader->vertexShader(), shader->fragmentShader()));
   }

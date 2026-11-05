@@ -433,7 +433,7 @@ namespace visage {
     ImageWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                  float height, const Image& image, ImageAtlas* image_atlas) :
         Shape(image_atlas, clamp, brush, x, y, width, height),
-        packed_image(image_atlas->addImage(image)), image_atlas(image_atlas) {
+        packed_image(image_atlas->addImage(image, image.raw)), image_atlas(image_atlas) {
       if (width == 0.0f) {
         this->width = packed_image.w();
         this->height = packed_image.h();
@@ -700,14 +700,36 @@ namespace visage {
     Direction direction = Direction::Up;
   };
 
+  // Feathers (re-port of fork f649b0e/aa1f8d6): a shader quad may carry six floats of its own, in
+  // thickness, fade, value1, value2 (a_texcoord2) and the position's z/w (a_position.zw).
+  static constexpr int kShaderQuadValues = 6;
+
   struct ShaderWrapper : Shape<> {
     ShaderWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                   float height, Shader* shader) :
         Shape(shader, clamp, brush, x, y, width, height), shader(shader) { }
 
-    static void setVertexData(Vertex* vertices) { setCornerCoordinates(vertices); }
+    ShaderWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
+                  float height, Shader* shader, const float* quad_values) :
+        Shape(shader, clamp, brush, x, y, width, height), shader(shader) {
+      for (int i = 0; i < kShaderQuadValues; ++i)
+        values[i] = quad_values[i];
+    }
+
+    void setVertexData(Vertex* vertices) const {
+      setCornerCoordinates(vertices);
+      for (int i = 0; i < kVerticesPerQuad; ++i) {
+        vertices[i].thickness = values[0];
+        vertices[i].fade = values[1];
+        vertices[i].value1 = values[2];
+        vertices[i].value2 = values[3];
+        vertices[i].garbage1 = values[4];
+        vertices[i].garbage2 = values[5];
+      }
+    }
 
     Shader* shader = nullptr;
+    float values[kShaderQuadValues] = {};
   };
 
   struct SampleRegion : Shape<PostEffectVertex> {
