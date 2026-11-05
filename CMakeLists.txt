@@ -31,6 +31,20 @@ option(VISAGE_ENABLE_GRAPHICS_DEBUG_LOGGING "Shows graphics debug log in console
 option(VISAGE_ADDRESS_SANITIZER "Enable AddressSanitizer" OFF)
 option(VISAGE_LIVE_SHADERS "Link the shader compiler into the app for live shader editing" OFF)
 
+# Feathers (re-port of the fork's two ship options, 2026-11-05). `-DFEATHERS_DIAGNOSTIC=ON` on a
+# superproject's configure line reaches the plugin's own diagnostics through this fork's PUBLIC
+# definition, exactly as before v1.0.0; v1.0.0 has none of the old bgfx traces, so in this tree it
+# gates nothing of visage's own.
+option(FEATHERS_DIAGNOSTIC "Propagate the Feathers diagnostic build to every visage consumer" OFF)
+
+# THE COARSE FIX, re-ported onto v1.0.0's compositor: every layer is invalidated every frame, so
+# every swap-chain buffer is composited whole and no buffer can present a region it missed. v1.0.0
+# composites per-buffer damage (854b313); MEASURED 2026-11-05 that venue-xvfb (lavapipe) cannot
+# express a fault in that history — it acquires one image at age 1 every frame — so whether partial
+# present is sound on a real GPU swap chain is unmeasured, and the install config keeps this ON until
+# it is. See `Canvas::submit`.
+option(FEATHERS_FULL_REDRAW "Repaint every layer every frame" OFF)
+
 if (VISAGE_ADDRESS_SANITIZER)
   if (MSVC)
     add_compile_options(/fsanitize=address /Zi)
@@ -130,6 +144,18 @@ target_link_libraries(visage PRIVATE
 )
 
 set_target_properties(visage PROPERTIES FOLDER "visage")
+
+if (FEATHERS_DIAGNOSTIC)
+  target_compile_definitions(VisageGraphics PUBLIC FEATHERS_DIAGNOSTIC)
+  target_compile_definitions(visage PUBLIC FEATHERS_DIAGNOSTIC)
+  message(STATUS "VISAGE: FEATHERS_DIAGNOSTIC build")
+endif ()
+
+if (FEATHERS_FULL_REDRAW)
+  target_compile_definitions(VisageGraphics PUBLIC FEATHERS_FULL_REDRAW)
+  target_compile_definitions(visage PUBLIC FEATHERS_FULL_REDRAW)
+  message(STATUS "VISAGE: FEATHERS_FULL_REDRAW build - every layer repaints every frame")
+endif ()
 
 if (VISAGE_BUILD_EXAMPLES)
   add_subdirectory(examples)

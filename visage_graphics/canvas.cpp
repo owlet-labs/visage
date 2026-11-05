@@ -111,6 +111,16 @@ namespace visage {
     int backdrop_count = window_region_.computeBackdropCount();
     int submission = path_atlas_.updatePaths(submit_pass);
 
+#ifdef FEATHERS_FULL_REDRAW
+    // Feathers (re-port of 83f3a44/58f52b7 onto v1.0.0's compositor): every layer is invalidated, so
+    // every shape is re-submitted and the composite's damage is the whole window — each swap-chain
+    // buffer is then composited whole, and no buffer can present a region whose change it missed.
+    // Gives up partial damage, an optimisation rather than a correctness requirement. Placed before
+    // the backdrop checks below so they see the frame as it will really be drawn.
+    for (int i = 1; i < layers_.size(); ++i)
+      layers_[i]->invalidate();
+#endif
+
     for (int i = 2; i < layers_.size(); ++i)
       layers_[i]->invalidateBackdropsIfAllInvalidated();
     for (int i = 2; i < layers_.size(); ++i) {
