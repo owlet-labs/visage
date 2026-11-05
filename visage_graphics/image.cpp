@@ -125,8 +125,10 @@ namespace visage {
       updateImage(packed_image_rect.get());
       images_[image] = std::move(packed_image_rect);
     }
-    else if (force_update)
+    else if (force_update) {
+      images_[image]->image.format = image.format;
       updateImage(images_[image].get());
+    }
 
     stale_images_.erase(image);
 
@@ -173,7 +175,23 @@ namespace visage {
 
     PackedRect packed_rect = atlas_map_.rectForId(image);
     if (image->image.raw) {
-      texture_->updateTexture(image->image.data, packed_rect.x, packed_rect.y, packed_rect.w,
+      if (image->image.format == ImageFormat::RGBA8) {
+        texture_->updateTexture(image->image.data, packed_rect.x, packed_rect.y, packed_rect.w,
+                                packed_rect.h);
+        return;
+      }
+      // Feathers (re-port of fork 1c06b1f): a BGRA buffer is swizzled to the atlas's RGBA here.
+      const int count = packed_rect.w * packed_rect.h;
+      std::vector<unsigned char> swizzled(static_cast<size_t>(count) * 4);
+      const unsigned char* source = image->image.data;
+      for (int i = 0; i < count; ++i) {
+        const int at = i * 4;
+        swizzled[at + 0] = source[at + 2];
+        swizzled[at + 1] = source[at + 1];
+        swizzled[at + 2] = source[at + 0];
+        swizzled[at + 3] = source[at + 3];
+      }
+      texture_->updateTexture(swizzled.data(), packed_rect.x, packed_rect.y, packed_rect.w,
                               packed_rect.h);
       return;
     }

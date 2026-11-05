@@ -27,6 +27,12 @@
 #include <utility>
 
 namespace visage {
+  // Feathers (re-port of fork 1c06b1f): the byte order of a raw pixel buffer.
+  enum class ImageFormat {
+    RGBA8,
+    BGRA8,
+  };
+
   struct Image {
     Image() = default;
     Image(const unsigned char* data, int data_size, int width = 0, int height = 0) :
@@ -37,6 +43,7 @@ namespace visage {
     int width = 0;
     int height = 0;
     bool raw = false;
+    ImageFormat format = ImageFormat::RGBA8;
 
     bool operator==(const Image& other) const {
       return data == other.data && data_size == other.data_size && width == other.width &&
