@@ -133,6 +133,13 @@ namespace visage {
     virtual void* graphicsHandle() const { return nativeHandle(); }
     virtual void windowContentsResized(int width, int height) = 0;
 
+    /// Feathers (re-port of fork a0bda04): moves a plugin-embedded window into a new parent
+    /// container. Only backends with an embed path implement it; the default is a no-op.
+    virtual void reparent(void* parent_handle) { (void)parent_handle; }
+    /// Removes a plugin-embedded window from its parent container without destroying anything,
+    /// so a host destroying the container cannot take the window's view with it.
+    virtual void detachFromParent() { }
+
     virtual void* initWindow() const { return nullptr; }
     virtual void* globalDisplay() const { return nullptr; }
     virtual bool waylandDisplay() const { return false; }
@@ -195,6 +202,16 @@ namespace visage {
     void setInternalWindowSize(int width, int height);
     void setDpiScale(float scale) { dpi_scale_ = scale; }
     float dpiScale() const { return dpi_scale_; }
+
+    // Feathers (re-port of fork 45970ce): A MULTIPLIER ON TOP OF THE DPI SCALE, for content that
+    // should draw larger than the display asks. On macOS the dpi scale is the backing scale factor —
+    // device pixels per point — and the platform code uses it for geometry and resets it whenever the
+    // view changes window or display, so a UI scale written INTO it was overwritten and the window grew
+    // while the content did not. The editor, its canvas and its event coordinates read `drawScale()`
+    // instead. Default 1: every backend that never sets it behaves exactly as before.
+    void setContentScale(float scale) { content_scale_ = scale; }
+    float contentScale() const { return content_scale_; }
+    float drawScale() const { return dpi_scale_ * content_scale_; }
 
     IPoint convertToNative(const Point& logical_point) const {
       return { static_cast<int>(std::round(logical_point.x * dpi_scale_)),
@@ -270,6 +287,7 @@ namespace visage {
     std::function<void(double)> draw_callback_ = nullptr;
     std::function<void(const FrameDecoration&)> frame_decoration_callback_ = nullptr;
     float dpi_scale_ = 1.0f;
+    float content_scale_ = 1.0f;
     bool visible_ = true;
     bool mouse_relative_mode_ = false;
     int client_width_ = 0;

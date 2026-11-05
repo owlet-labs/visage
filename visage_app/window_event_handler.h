@@ -47,8 +47,16 @@ namespace visage {
     bool takeMouseDrag(Frame* frame);
 
     Point lastMousePosition() const { return last_mouse_position_; }
-    IPoint convertToNative(const Point& point) const { return window_->convertToNative(point); }
-    Point convertToLogical(const IPoint& point) const { return window_->convertToLogical(point); }
+    // Feathers (re-port of fork 45970ce): through the DRAW scale (dpi x content scale), which is what
+    // the content frame is laid out at.
+    IPoint convertToNative(const Point& point) const {
+      const float scale = window_->drawScale();
+      return { static_cast<int>(std::round(point.x * scale)), static_cast<int>(std::round(point.y * scale)) };
+    }
+    Point convertToLogical(const IPoint& point) const {
+      const float scale = window_->drawScale();
+      return { point.x / scale, point.y / scale };
+    }
 
     MouseEvent mouseEvent(int x, int y, int button_state, int modifiers);
     MouseEvent buttonMouseEvent(MouseButton button_id, int x, int y, int button_state, int modifiers);

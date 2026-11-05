@@ -97,6 +97,11 @@ namespace visage {
     void closeWindow();
     void setParentWindow(NSWindow* window);
     void resetBackingScale();
+    // Feathers (re-port of fork a0bda04/de4115c): move an embedded view between host containers,
+    // or out of one, without rebuilding it; and re-derive its frame from its container.
+    void reparent(void* parent_handle) override;
+    void detachFromParent() override;
+    void syncFrameToParentView();
 
     void* nativeHandle() const override { return (__bridge void*)view_; }
     void* graphicsHandle() const override;

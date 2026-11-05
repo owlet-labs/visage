@@ -1112,8 +1112,13 @@ static constexpr double kMaxDrawLead = 0.6;
 
 - (void)viewDidChangeBackingProperties {
   [super viewDidChangeBackingProperties];
-  if (self.visage_window)
+  if (self.visage_window) {
     self.visage_window->resetBackingScale();
+    // Feathers (re-port of fork a0bda04): a backing change is a display change, and the frame was
+    // sized against the old one; after a move between displays of different scale the canvas was
+    // smaller than its window with blank edges. The geometry is re-derived with the scale.
+    self.visage_window->syncFrameToParentView();
+  }
 }
 
 - (void)viewWillMoveToWindow:(NSWindow*)new_window {
@@ -1500,7 +1505,13 @@ namespace visage {
     view_delegate_ = [[VisageAppViewDelegate alloc] initWithWindow:this];
     view_.delegate = view_delegate_;
     view_.allow_quit = false;
+    // Feathers (re-port of fork a0bda04/214cb52): FILL THE CONTAINER, whatever size it turns out to
+    // be, now and when the host grows its own view rather than calling set_size. Autoresizing does
+    // not run on addSubview, so the birth frame (native/scale points) is replaced at once too.
+    view_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [parent_view_ addSubview:view_];
+    if (parent_view_.bounds.size.width > 0.0f && parent_view_.bounds.size.height > 0.0f)
+      [view_ setFrame:parent_view_.bounds];
 
     NativeWindowLookup::instance().addWindow(this);
   }
@@ -1584,6 +1595,9 @@ namespace visage {
     [window_handle_ makeFirstResponder:view_];
     [NSApp activateIgnoringOtherApps:YES];
     resetBackingScale();
+    // Feathers (re-port of fork a0bda04): the window the view just landed in may be on another
+    // display than the frame was laid out for, including at first embed.
+    syncFrameToParentView();
   }
 
   void WindowMac::resetBackingScale() {
@@ -1591,7 +1605,51 @@ namespace visage {
       setDpiScale([window_handle_ backingScaleFactor]);
   }
 
+  // Feathers (re-port of fork a0bda04 + de4115c): reparenting moves the view between host containers.
+  // addSubview re-homes it (viewWillMoveToWindow: nil, then the new window: closeWindow clears the
+  // stale window and drops this from the lookup, setParentWindow records the new one). The renderer
+  // and swap chain are untouched, which is what makes this safe where rebuilding is not.
+  void WindowMac::reparent(void* parent_handle) {
+    if (parent_view_ == nullptr || parent_handle == nullptr || view_ == nullptr)
+      return;
+
+    parent_view_ = (__bridge NSView*)parent_handle;
+    [parent_view_ addSubview:view_];
+    NativeWindowLookup::instance().addWindow(this);
+    syncFrameToParentView();
+  }
+
+  // Out of the host's container without destroying anything: our own retain keeps the view alive.
+  void WindowMac::detachFromParent() {
+    if (view_ == nullptr || parent_view_ == nullptr)
+      return;
+    [view_ removeFromSuperview];
+  }
+
+  void WindowMac::syncFrameToParentView() {
+    if (parent_view_ == nullptr)
+      return;
+
+    if (window_handle_ == nullptr && parent_view_.window)
+      window_handle_ = parent_view_.window;
+    resetBackingScale();
+    NSRect bounds = [parent_view_ bounds];
+    if (bounds.size.width <= 0.0f || bounds.size.height <= 0.0f)
+      return;
+
+    [view_ setFrame:bounds];
+    const float scale = dpiScale();
+    handleResized(std::round(bounds.size.width * scale), std::round(bounds.size.height * scale));
+  }
+
   void WindowMac::windowContentsResized(int width, int height) {
+    // Feathers (re-port of fork 214cb52): the host already sized the container. Dividing CLAP pixels
+    // by dpiScale again made a Retina embed half (or a quarter) of the window.
+    if (parent_view_) {
+      [view_ setFrame:parent_view_.bounds];
+      return;
+    }
+
     NSRect frame = [window_handle_ frame];
     float w = width / dpiScale();
     float h = height / dpiScale();
