@@ -595,7 +595,8 @@ static constexpr double kMaxDrawLead = 0.6;
   self.device = MTLCreateSystemDefaultDevice();
   self.enableSetNeedsDisplay = NO;
   self.layerContentsPlacement = NSViewLayerContentsPlacementTopLeft;
-  self.preferredFramesPerSecond = 120;
+  // Feathers: capped (see Window::kMaxFramesPerSecond). This paces the MTKView's own timer, the road below macOS 14.
+  self.preferredFramesPerSecond = visage::Window::kMaxFramesPerSecond;
   for (CFTimeInterval& render_time : render_times_)
     render_time = kInitialRenderTime;
   self.render_time = kInitialRenderTime;
@@ -1169,6 +1170,9 @@ static constexpr double kMaxDrawLead = 0.6;
       target.view = self;
       CADisplayLink* link = [self displayLinkWithTarget:target
                                                selector:@selector(displayLinkFired:)];
+      // Feathers: the macOS 14+ road, capped like the timer above (Window::kMaxFramesPerSecond).
+      const float fps = static_cast<float>(visage::Window::kMaxFramesPerSecond);
+      link.preferredFrameRateRange = CAFrameRateRangeMake(fps, fps, fps);
       [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
       self.display_link = link;
     }

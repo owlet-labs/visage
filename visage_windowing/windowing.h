@@ -171,6 +171,13 @@ namespace visage {
     // leaves its event-fed state alone rather than clearing it every frame.
     virtual bool hasModifierState() const { return false; }
 
+    // Feathers (re-port of fork a09e476): THE MACOS FRAME RATE CAP. The draw callback runs on the main
+    // thread, and at 120 Hz a full-surface repaint every tick saturates it, so interactive controls lag;
+    // 60 keeps ambient motion smooth at half the render load. The macOS backend caps both of its pacing
+    // roads with it (the CADisplayLink on macOS 14+, the MTKView timer below that). Other backends do not
+    // read it.
+    static constexpr int kMaxFramesPerSecond = 60;
+
     void setDrawCallback(std::function<void(double)> callback) {
       draw_callback_ = std::move(callback);
     }
