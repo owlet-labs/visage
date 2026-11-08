@@ -57,6 +57,11 @@ namespace visage {
     WindowWin32(int x, int y, int width, int height, Decoration decoration);
     WindowWin32(int width, int height, void* parent_handle);
 
+    // Feathers (re-port of fork 9d168ca, dropped in the v1 port): GetKeyState over the modifier
+    // virtual keys, the read the event road stamps events with, exposed for polling.
+    int modifierState() const override;
+    bool hasModifierState() const override { return true; }
+
     ~WindowWin32() override;
 
     void finishWindowSetup();

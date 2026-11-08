@@ -166,6 +166,10 @@ namespace visage {
     // rather than from an event, so a frame can poll a held modifier once a frame. Zero where a
     // platform has no implementation. (Re-port of fork 9d168ca onto v1.0.0.)
     virtual int modifierState() const { return 0; }
+    // Feathers: whether modifierState() reads the platform at all. A backend without it answers zero,
+    // which is indistinguishable from "nothing held"; a poller asks this first so a missing backend
+    // leaves its event-fed state alone rather than clearing it every frame.
+    virtual bool hasModifierState() const { return false; }
 
     void setDrawCallback(std::function<void(double)> callback) {
       draw_callback_ = std::move(callback);

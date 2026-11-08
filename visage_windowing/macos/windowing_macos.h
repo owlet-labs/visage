@@ -103,6 +103,12 @@ namespace visage {
     void detachFromParent() override;
     void syncFrameToParentView();
 
+    // Feathers (re-port of fork 9d168ca, dropped in the v1 port): [NSEvent modifierFlags], the
+    // class-level read of the modifiers held now, translated as the event road translates one event's
+    // flags. See Window::modifierState.
+    int modifierState() const override;
+    bool hasModifierState() const override { return true; }
+
     void* nativeHandle() const override { return (__bridge void*)view_; }
     void* graphicsHandle() const override;
     void* initWindow() const override;

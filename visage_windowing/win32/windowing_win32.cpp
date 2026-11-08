@@ -1704,6 +1704,10 @@ namespace visage {
     handleWindowHidden();
   }
 
+  int WindowWin32::modifierState() const {
+    return keyboardModifiers();
+  }
+
   void WindowWin32::close() {
     PostMessage(window_handle_, WM_CLOSE, 0, 0);
   }

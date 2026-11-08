@@ -1380,6 +1380,20 @@ namespace visage {
     return (__bridge void*)view_.layer;
   }
 
+  int WindowMac::modifierState() const {
+    NSUInteger flags = [NSEvent modifierFlags];
+    int result = 0;
+    if (flags & NSEventModifierFlagCommand)
+      result = result | kModifierCmd;
+    if (flags & NSEventModifierFlagControl)
+      result = result | kModifierMacCtrl;
+    if (flags & NSEventModifierFlagOption)
+      result = result | kModifierOption;
+    if (flags & NSEventModifierFlagShift)
+      result = result | kModifierShift;
+    return result;
+  }
+
   void* WindowMac::initWindow() const {
     return (__bridge void*)InitialMetalLayer::layer();
   }

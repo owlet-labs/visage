@@ -325,6 +325,7 @@ namespace visage {
     bool timerThreadRunning() { return timer_thread_running_.load(); }
     void framePresented() override;
     int modifierState() const override;
+    bool hasModifierState() const override { return true; }
     long long lastPresentMicroseconds() const { return last_present_us_.load(); }
     void presentCompleted() {
       if (presents_outstanding_.load() > 0)
