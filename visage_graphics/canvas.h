@@ -493,12 +493,15 @@ namespace visage {
 
     // Feathers (re-port of fork 1c06b1f): draw a pixel buffer you already have, stretched to a
     // rectangle. The buffer is re-uploaded each draw, so a caller may change it in place.
+    // Feathers: `serial` — nonzero, stamped by the owner where the pixels are produced — uploads the buffer only when
+    // it moves (Image::serial); zero uploads on every draw.
     template<typename T1, typename T2, typename T3, typename T4>
     void imageRaw(const unsigned char* data, int image_width, int image_height, ImageFormat format,
-                  const T1& x, const T2& y, const T3& width, const T4& height) {
+                  const T1& x, const T2& y, const T3& width, const T4& height, uint64_t serial = 0) {
       Image raw(data, image_width * image_height * 4, image_width, image_height);
       raw.raw = true;
       raw.format = format;
+      raw.serial = serial;
       addImage(raw, pixels(x), pixels(y), pixels(width), pixels(height));
     }
 

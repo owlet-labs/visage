@@ -127,8 +127,15 @@ namespace visage {
       images_[image] = std::move(packed_image_rect);
     }
     else if (force_update) {
-      images_[image]->image.format = image.format;
-      updateImage(images_[image].get());
+      PackedImageRect* packed = images_[image].get();
+      // Feathers: a raw image whose owner says its pixels have not changed is not uploaded again.
+      const bool unchanged = image.serial != 0 && packed->image.serial == image.serial &&
+                             packed->image.format == image.format;
+      if (!unchanged) {
+        packed->image.format = image.format;
+        packed->image.serial = image.serial;
+        updateImage(packed);
+      }
     }
 
     stale_images_.erase(image);
@@ -176,6 +183,7 @@ namespace visage {
 
     PackedRect packed_rect = atlas_map_.rectForId(image);
     if (image->image.raw) {
+      ++raw_uploads_;
       if (image->image.format == ImageFormat::RGBA8) {
         texture_->updateTexture(image->image.data, packed_rect.x, packed_rect.y, packed_rect.w,
                                 packed_rect.h);

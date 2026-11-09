@@ -44,6 +44,11 @@ namespace visage {
     int height = 0;
     bool raw = false;
     ImageFormat format = ImageFormat::RGBA8;
+    // Feathers: for a raw image, a serial its owner stamps where the pixels are produced, moved whenever they
+    // change. Nonzero, an unchanged serial means unchanged pixels and the atlas does not upload them again; zero
+    // (the default) uploads on every draw, as before. NOT part of the key below: the same buffer is one atlas entry
+    // whose content changes, and a pointer or a size is never an identity for its content.
+    uint64_t serial = 0;
 
     bool operator==(const Image& other) const {
       return data == other.data && data_size == other.data_size && width == other.width &&
@@ -255,6 +260,8 @@ namespace visage {
     // Feathers: an image quad drawn at `width` x `height` pixels — texels per pixel per axis in the direction, and
     // the image's sub-rect, inset by half a texel so bilinear filtering never reaches a neighbour (fs_image).
     void setImageCoordinates(ImageVertex* vertices, const PackedImage& image, float width, float height) const;
+    // Feathers: how many raw-image uploads this atlas has made (the swizzle and the copy), for a test.
+    uint64_t rawUploads() const { return raw_uploads_; }
     int numChannels() const { return data_type_ == DataType::Float32 ? 1 : 4; }
     int bytesPerChannel() const { return data_type_ == DataType::Float32 ? 4 : 1; }
 
@@ -278,6 +285,7 @@ namespace visage {
 
     DataType data_type_ = DataType::RGBA8;
     bool repacked_ = false;
+    mutable uint64_t raw_uploads_ = 0;
     PackedAtlasMap<const PackedImageRect*> atlas_map_;
     std::unique_ptr<ImageAtlasTexture> texture_;
     std::shared_ptr<ImageAtlas*> reference_;
