@@ -252,6 +252,9 @@ namespace visage {
     const gpu::TextureHandle& textureHandle();
     void destroyTexture();
     void setImageCoordinates(TextureVertex* vertices, const PackedImage& image) const;
+    // Feathers: an image quad drawn at `width` x `height` pixels — texels per pixel per axis in the direction, and
+    // the image's sub-rect, inset by half a texel so bilinear filtering never reaches a neighbour (fs_image).
+    void setImageCoordinates(ImageVertex* vertices, const PackedImage& image, float width, float height) const;
     int numChannels() const { return data_type_ == DataType::Float32 ? 1 : 4; }
     int bytesPerChannel() const { return data_type_ == DataType::Float32 ? 4 : 1; }
 

@@ -313,6 +313,33 @@ namespace visage {
     static gpu::VertexLayout& layout();
   };
 
+  // Feathers: an image quad's vertex. A TextureVertex plus the image's own sub-rect in the atlas (texels), so the
+  // fragment can never sample outside it, and `direction_x/y` carry TEXELS PER PIXEL per axis rather than a
+  // rotation: the vertex shader's clip shift is in pixels and the texture coordinates are in texels, which only
+  // agree when an image is drawn at its own size (fs_image / vs_image).
+  struct ImageVertex {
+    float x;
+    float y;
+    float dimension_x;
+    float dimension_y;
+    GradientTexturePosition gradient_texture_position;
+    GradientVertexPosition gradient;
+    float texture_x;
+    float texture_y;
+    float direction_x;
+    float direction_y;
+    float clamp_left;
+    float clamp_top;
+    float clamp_right;
+    float clamp_bottom;
+    float image_left;
+    float image_top;
+    float image_right;
+    float image_bottom;
+
+    static gpu::VertexLayout& layout();
+  };
+
   struct PostEffectVertex {
     float x;
     float y;

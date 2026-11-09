@@ -426,7 +426,7 @@ namespace visage {
     float rounding = 0.0f;
   };
 
-  struct ImageWrapper : Shape<TextureVertex> {
+  struct ImageWrapper : Shape<ImageVertex> {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
@@ -441,7 +441,7 @@ namespace visage {
     }
 
     void setVertexData(Vertex* vertices) const {
-      image_atlas->setImageCoordinates(vertices, packed_image);
+      image_atlas->setImageCoordinates(vertices, packed_image, width, height);
     }
 
     ImageAtlas::PackedImage packed_image;

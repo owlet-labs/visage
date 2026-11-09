@@ -54,7 +54,7 @@ namespace visage {
   VISAGE_SET_PROGRAM(Triangle, shaders::vs_complex_shape, shaders::fs_triangle)
   VISAGE_SET_PROGRAM(QuadraticBezier, shaders::vs_complex_shape, shaders::fs_quadratic_bezier)
   VISAGE_SET_PROGRAM(Diamond, shaders::vs_shape, shaders::fs_diamond)
-  VISAGE_SET_PROGRAM(ImageWrapper, shaders::vs_tinted_texture, shaders::fs_tinted_texture)
+  VISAGE_SET_PROGRAM(ImageWrapper, shaders::vs_image, shaders::fs_image)
   VISAGE_SET_PROGRAM(PathFillWrapper, shaders::vs_sample_path, shaders::fs_sample_path)
   VISAGE_SET_PROGRAM(GraphLineWrapper, shaders::vs_shape, shaders::fs_graph_line)
   VISAGE_SET_PROGRAM(GraphFillWrapper, shaders::vs_shape, shaders::fs_graph_fill)

@@ -23,6 +23,7 @@
 
 #include "gpu/gpu.h"
 
+#include <algorithm>
 #include <cstring>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -234,6 +235,36 @@ namespace visage {
       repacked_ = false;
     }
     return texture_->handle();
+  }
+
+  void ImageAtlas::setImageCoordinates(ImageVertex* vertices, const PackedImage& image, float width,
+                                       float height) const {
+    const float left = image.x();
+    const float top = image.y();
+    const float right = left + image.w();
+    const float bottom = top + image.h();
+    const float texels_x = width > 0.0f ? image.w() / width : 1.0f;
+    const float texels_y = height > 0.0f ? image.h() / height : 1.0f;
+    const float inset_x = std::min(0.5f, image.w() * 0.5f);
+    const float inset_y = std::min(0.5f, image.h() * 0.5f);
+
+    vertices[0].texture_x = left;
+    vertices[0].texture_y = top;
+    vertices[1].texture_x = right;
+    vertices[1].texture_y = top;
+    vertices[2].texture_x = left;
+    vertices[2].texture_y = bottom;
+    vertices[3].texture_x = right;
+    vertices[3].texture_y = bottom;
+
+    for (int i = 0; i < kVerticesPerQuad; ++i) {
+      vertices[i].direction_x = texels_x;
+      vertices[i].direction_y = texels_y;
+      vertices[i].image_left = left + inset_x;
+      vertices[i].image_top = top + inset_y;
+      vertices[i].image_right = right - inset_x;
+      vertices[i].image_bottom = bottom - inset_y;
+    }
   }
 
   void ImageAtlas::setImageCoordinates(TextureVertex* vertices, const PackedImage& image) const {

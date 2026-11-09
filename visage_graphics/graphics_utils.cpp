@@ -442,6 +442,26 @@ namespace visage {
     return layout;
   }
 
+  gpu::VertexLayout& ImageVertex::layout() {
+    static gpu::VertexLayout layout;
+    static bool initialized = false;
+
+    if (!initialized) {
+      initialized = true;
+      layout.begin()
+          .add(gpu::Attrib::Position, 4)
+          .add(gpu::Attrib::Color0, 4)
+          .add(gpu::Attrib::Color1, 4)
+          .add(gpu::Attrib::Color2, 4)
+          .add(gpu::Attrib::TexCoord0, 4)
+          .add(gpu::Attrib::TexCoord1, 4)
+          .add(gpu::Attrib::TexCoord2, 4)
+          .end();
+    }
+
+    return layout;
+  }
+
   gpu::VertexLayout& PostEffectVertex::layout() {
     static gpu::VertexLayout layout;
     static bool initialized = false;
