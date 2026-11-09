@@ -49,6 +49,21 @@ namespace visage {
 
     static bool swapChainSupported();
 
+    // Feathers: FULL REDRAW AS A RUNTIME SWITCH. When on, Canvas::submit invalidates every layer every
+    // frame, so each swap-chain buffer is composited whole and none can present a region whose change
+    // it missed; when off, only damaged regions are repainted. Process-global (every canvas reads one
+    // atomic). Its default is the compile-time FEATHERS_FULL_REDRAW: ON in builds that define it, OFF
+    // otherwise. It deliberately does NOT read the VISAGE_FULL_REDRAW environment variable: visage
+    // v1.0.0 never did, and test binaries whose cases are invisible under full redraw rely on that.
+    static void setFullRedraw(bool full);
+    static bool fullRedraw();
+    static constexpr bool kFullRedrawCompiledDefault =
+#ifdef FEATHERS_FULL_REDRAW
+        true;
+#else
+        false;
+#endif
+
     struct State {
       float x = 0;
       float y = 0;

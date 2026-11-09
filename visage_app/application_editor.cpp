@@ -205,6 +205,7 @@ namespace visage {
     if (!initialized())
       init();
 
+    long long wait_start_microseconds = draw_timed_callback_ ? time::microseconds() : 0;
     if (window_)
       window_->waitForFrame();
 
@@ -212,6 +213,11 @@ namespace visage {
     int frame = canvas_->frameCount();
     drawStaleChildren();
     canvas_->submit();
+    if (draw_timed_callback_) {
+      long long end_microseconds = time::microseconds();
+      draw_timed_callback_(start_microseconds - wait_start_microseconds, end_microseconds - start_microseconds,
+                           canvas_->frameCount() != frame);
+    }
     if (window_ == nullptr)
       return;
 
