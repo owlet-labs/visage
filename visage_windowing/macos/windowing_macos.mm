@@ -435,13 +435,19 @@ static NSPasteboardType const kVisageDragFileType = @"audio.vital.visage.drag-fi
 @end
 
 @implementation VisageFilePromiseProvider
+// Feathers: the file is also offered as a plain file URL (public.file-url), as the pre-v1 fork offered it. A drop
+// target that reads file URLs and not promises (a DAW's track) then takes the file directly; one that prefers the
+// promise (Finder) still has it.
 - (NSArray<NSPasteboardType>*)writableTypesForPasteboard:(NSPasteboard*)pasteboard {
-  return [[super writableTypesForPasteboard:pasteboard] arrayByAddingObject:kVisageDragFileType];
+  return [[super writableTypesForPasteboard:pasteboard]
+      arrayByAddingObjectsFromArray:@[ kVisageDragFileType, NSPasteboardTypeFileURL ]];
 }
 
 - (id)pasteboardPropertyListForType:(NSPasteboardType)type {
   if ([type isEqualToString:kVisageDragFileType])
     return [self.userInfo path];
+  if ([type isEqualToString:NSPasteboardTypeFileURL])
+    return [self.userInfo absoluteString];
   return [super pasteboardPropertyListForType:type];
 }
 @end
