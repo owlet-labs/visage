@@ -70,6 +70,9 @@ namespace visage {
     void removeTimer(const EventTimer* timer);
     void addCallback(std::function<void()> callback);
     void checkEventTimers();
+    // Feathers: how many timers are running, for an embedder's diagnostics and lifetime tests (a count
+    // that grows with each editor reopen is a leak that multiplies every frame's work).
+    size_t timerCount() const { return timers_.size(); }
 
   private:
     EventManager() = default;

@@ -43,7 +43,7 @@ option(FEATHERS_DIAGNOSTIC "Propagate the Feathers diagnostic build to every vis
 # express a fault in that history — it acquires one image at age 1 every frame — so whether partial
 # present is sound on a real GPU swap chain is unmeasured, and the install config keeps this ON until
 # it is. See `Canvas::submit`.
-option(FEATHERS_FULL_REDRAW "Repaint every layer every frame" OFF)
+option(FEATHERS_FULL_REDRAW "Default Canvas::fullRedraw() ON (repaint every layer every frame; a runtime switch)" OFF)
 
 if (VISAGE_ADDRESS_SANITIZER)
   if (MSVC)
@@ -154,7 +154,7 @@ endif ()
 if (FEATHERS_FULL_REDRAW)
   target_compile_definitions(VisageGraphics PUBLIC FEATHERS_FULL_REDRAW)
   target_compile_definitions(visage PUBLIC FEATHERS_FULL_REDRAW)
-  message(STATUS "VISAGE: FEATHERS_FULL_REDRAW build - every layer repaints every frame")
+  message(STATUS "VISAGE: FEATHERS_FULL_REDRAW build - Canvas::fullRedraw() defaults ON (every layer repaints every frame)")
 endif ()
 
 # Feathers: A KNOWN-BAD, AS A BUILD OPTION so a good and a broken build can sit side by side on a

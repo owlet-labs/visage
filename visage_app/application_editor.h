@@ -24,6 +24,7 @@
 #include "visage_ui/frame.h"
 
 #include <array>
+#include <functional>
 #include <unordered_set>
 
 namespace visage {
@@ -74,6 +75,13 @@ namespace visage {
     void removeFromWindow();
     void drawWindow();
 
+    // Feathers: FRAME TIMING, for an embedder's diagnostics. When set, called at the end of every
+    // drawWindow that drew: microseconds spent in waitForFrame, microseconds spent drawing stale
+    // children and submitting, and whether a new frame was presented. Unset (the default) it costs one
+    // empty-function test per draw.
+    using DrawTimedCallback = std::function<void(long long wait_us, long long draw_us, bool presented)>;
+    void setDrawTimedCallback(DrawTimedCallback callback) { draw_timed_callback_ = std::move(callback); }
+
     bool isFixedAspectRatio() const { return fixed_aspect_ratio_ != 0.0f; }
     void setFixedAspectRatio(bool fixed);
     float aspectRatio() const override {
@@ -117,6 +125,7 @@ namespace visage {
     FrameEventHandler event_handler_;
     std::unique_ptr<Canvas> canvas_;
     int waited_frame_buffer_id_ = -1;
+    DrawTimedCallback draw_timed_callback_;
     std::unique_ptr<TopLevelFrame> top_level_;
 
     std::unique_ptr<WindowEventHandler> window_event_handler_;
